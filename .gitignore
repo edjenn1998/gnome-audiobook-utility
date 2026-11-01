@@ -1,0 +1,17 @@
+.venv/
+.deps/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+.env
+*.aax
+*.aaxc
+*.voucher
+*.part
+*.log

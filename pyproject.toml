@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gnome-audiobook-utility"
+version = "0.1.0"
+description = "Native GNOME audiobook conversion, merging and metadata tools"
+requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+dependencies = ["mutagen>=1.47,<2", "Pillow>=12.3,<14", "httpx>=0.28,<0.29", "audible==0.13.1", "SecretStorage>=3.3,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.14", "build"]
+
+[project.scripts]
+audiobook-utility = "audiobook_utility.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

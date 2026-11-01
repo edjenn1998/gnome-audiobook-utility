@@ -1,0 +1,15 @@
+#!/bin/sh
+# Use optional extracted CI runtimes without changing system configuration.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -d "$ROOT/.deps/usr" ]; then
+    export PATH="$ROOT/.deps/usr/bin:$PATH"
+    export LD_LIBRARY_PATH="$ROOT/.deps/usr/lib/x86_64-linux-gnu:$ROOT/.deps/usr/lib/x86_64-linux-gnu/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export GI_TYPELIB_PATH="$ROOT/.deps/usr/lib/x86_64-linux-gnu/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+    export XDG_DATA_DIRS="$ROOT/.deps/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+fi
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+exec "$ROOT/.venv/bin/python" -m audiobook_utility
