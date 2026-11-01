@@ -7,7 +7,7 @@ name = "gnome-audiobook-utility"
 version = "0.1.0"
 description = "Native GNOME audiobook conversion, merging and metadata tools"
 requires-python = ">=3.12"
-license = "AGPL-3.0-or-later"
+license = "AGPL-3.0-only"
 dependencies = ["mutagen>=1.47,<2", "Pillow>=12.3,<14", "httpx>=0.28,<0.29", "audible==0.13.1", "SecretStorage>=3.3,<4"]
 
 [project.optional-dependencies]
@@ -25,3 +25,9 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/audiobook_utility/ui.py" = ["E402"]

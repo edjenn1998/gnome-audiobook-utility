@@ -1,8 +1,10 @@
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -10,6 +12,29 @@ from typing import Callable
 from .files import Cancelled, UtilityError, staging
 
 Progress = Callable[[float, str], None]
+
+
+@contextmanager
+def private_options(arguments: list[str]):
+    """FFmpeg's file-valued options read secrets from anonymous Linux RAM files."""
+    result = []
+    descriptors = []
+    try:
+        iterator = iter(arguments)
+        for arg in iterator:
+            if arg in {"-activation_bytes", "-audible_key", "-audible_iv"}:
+                value = next(iterator)
+                fd = os.memfd_create("audio-license", flags=os.MFD_CLOEXEC)
+                descriptors.append(fd)
+                os.fchmod(fd, 0o600)
+                os.write(fd, value.encode())
+                result.extend(["-/" + arg[1:], f"/proc/{os.getpid()}/fd/{fd}"])
+            else:
+                result.append(arg)
+        yield result
+    finally:
+        for fd in descriptors:
+            os.close(fd)
 
 
 @dataclass
@@ -35,11 +60,12 @@ def probe(path: Path, input_options: list[str] | None = None) -> MediaInfo:
     dependencies()
     path = path.expanduser().resolve(strict=True)
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "error", *(input_options or []), "-show_format", "-show_streams",
-             "-show_chapters", "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=60, check=True,
-        )
+        with private_options(input_options or []) as options:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", *options, "-show_format", "-show_streams",
+                 "-show_chapters", "-of", "json", str(path)],
+                capture_output=True, text=True, timeout=60, check=True,
+            )
         data = json.loads(result.stdout)
         audio = next(s for s in data["streams"] if s["codec_type"] == "audio")
         fmt = data["format"]
@@ -60,10 +86,10 @@ def run_ffmpeg(args: list[str], duration: float, cancel: threading.Event,
     if cancel.is_set():
         raise Cancelled("Operation canceled.")
     # stderr goes to a bounded-lifetime file, avoiding pipe deadlock and unbounded memory.
-    with tempfile.TemporaryFile(mode="w+b") as errors:
+    with tempfile.TemporaryFile(mode="w+b") as errors, private_options(args) as private_args:
         process = subprocess.Popen(
-            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-             "-progress", "pipe:1", *args], stdout=subprocess.PIPE, stderr=errors,
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-y",
+             "-progress", "pipe:1", *private_args], stdout=subprocess.PIPE, stderr=errors,
             text=True,
         )
         def watch():
@@ -185,6 +211,8 @@ def merge(sources: list[Path], target: Path, cancel: threading.Event,
                 seconds = pcm.stat().st_size / (48000 * 2 * 2)
                 if seconds <= 0:
                     raise UtilityError("An input track decoded to empty audio.")
+                if abs(seconds - info.duration) > max(0.3, info.duration * 0.002):
+                    raise UtilityError("A decoded track was shorter or longer than expected. Check the source for corruption.")
                 title = titles[index] if titles else info.tags.get("title", info.path.stem)
                 timeline.append((title, elapsed, elapsed + seconds))
                 elapsed += seconds

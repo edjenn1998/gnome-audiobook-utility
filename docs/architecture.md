@@ -34,10 +34,11 @@ copy with Mutagen and verified before atomic replacement; unknown tags survive.
 
 ## Licensing
 
-Application: **AGPL-3.0-or-later**, chosen instead of plain GPL because the
-in-process Audible dependency is AGPL. Audible's distribution license grants
-version 3 or later (see installed distribution LICENSE); preserve its license
-and notices in distributions. No OpenAudible or Libation code is copied.
+Application: **AGPL-3.0-only**, chosen instead of plain GPL because the
+in-process Audible dependency is AGPL. The installed audible 0.13.1 wheel's
+METADATA explicitly declares AGPL-3.0-only; its LICENSE contains the standard
+AGPL text (the appendix's example notice is not a separate license grant).
+Preserve its license and notices in distributions. No OpenAudible or Libation code is copied.
 See THIRD_PARTY.md for direct and transitive dependency obligations.
 Distributors must provide corresponding source and licenses; AGPL also covers
 modified versions made available over a network. System FFmpeg build licenses

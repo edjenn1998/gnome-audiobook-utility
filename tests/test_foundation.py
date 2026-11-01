@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from audiobook_utility.files import UtilityError, destination, safe_name, staging
