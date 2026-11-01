@@ -1,4 +1,5 @@
 import logging
+import secrets
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -125,6 +126,10 @@ class AudibleService:
             license_data = client.post(f"content/{book.asin}/licenserequest", body={
                 "supported_drm_types": ["Mpeg", "Adrm"], "quality": "High",
                 "consumption_type": "Download", "response_groups": "content_reference",
+            }, headers={
+                "X-Amzn-RequestId": secrets.token_hex(20).upper(),
+                "X-ADP-SW": "37801821", "X-ADP-Transport": "WIFI", "X-ADP-LTO": "120",
+                "X-Device-Type-Id": "A2CZJZGLK2JJVM", "device_idiom": "phone",
             })
             content = license_data.get("content_license", {})
             if content.get("status_code") != "Granted":

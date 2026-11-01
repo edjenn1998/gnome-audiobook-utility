@@ -45,11 +45,7 @@ def test_dependency_error(monkeypatch):
         dependencies()
 
 
-def test_native_window():
-    pytest.importorskip("gi")
-    from audiobook_utility.ui import Application
-    app = Application()
-    assert app.register()
-    app.activate()
-    assert app.get_active_window().get_title() == "Audiobook Utility"
-    app.get_active_window().destroy()
+def test_native_window(native_app):
+    native_app.activate()
+    assert native_app.get_active_window().get_title() == "Audiobook Utility"
+    native_app.get_active_window().destroy()

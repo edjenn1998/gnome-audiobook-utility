@@ -44,3 +44,35 @@ def test_invalid_art_preserves_source(audio):
     assert source.read_bytes() == original
     with pytest.raises(UtilityError):
         validate_artwork(b"x" * (21 * 1024 * 1024))
+
+
+def test_concurrent_metadata_edit_is_rejected(audio):
+    import fcntl
+    source = audio()
+    with source.open("rb") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        with pytest.raises(UtilityError, match="Another operation"):
+            edit(source, {"title": "Must not change"}, None)
+
+
+def test_remove_standard_id3_comment(audio):
+    from mutagen.id3 import COMM
+    source = audio()
+    audio_file = MP3(source)
+    audio_file.tags.add(COMM(encoding=3, desc="", lang="eng", text=["Old summary"]))
+    audio_file.save()
+    assert read_tags(source)[0]["description"] == "Old summary"
+    edit(source, {"description": ""}, None)
+    assert read_tags(source)[0]["description"] == ""
+
+
+def test_metadata_cancel_preserves_source(audio):
+    import threading
+    from audiobook_utility.files import Cancelled
+    source = audio()
+    original = source.read_bytes()
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(Cancelled):
+        edit(source, {"title": "Must not change"}, None, cancel)
+    assert source.read_bytes() == original

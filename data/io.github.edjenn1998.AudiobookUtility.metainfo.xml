@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.edjenn1998.AudiobookUtility</id>
+  <name>Audiobook Utility</name>
+  <summary>Convert, merge and tag audiobooks</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <url type="homepage">https://github.com/edjenn1998</url>
+  <developer id="io.github.edjenn1998"><name>Audiobook Utility contributors</name></developer>
+  <description>
+    <p>A native GNOME utility for converting audio to M4B or MP3, combining chapter files, and editing audiobook tags and cover artwork.</p>
+    <p>Local audio tools work without an account. An optional Audible.com connection retrieves eligible purchases using your own account.</p>
+  </description>
+  <launchable type="desktop-id">io.github.edjenn1998.AudiobookUtility.desktop</launchable>
+  <provides><binary>audiobook-utility</binary></provides>
+  <categories><category>AudioVideo</category><category>AudioVideoEditing</category></categories>
+  <content_rating type="oars-1.1"/>
+  <requires><display_length compare="ge">360</display_length></requires>
+  <recommends><control>pointing</control><control>keyboard</control></recommends>
+  <supports><control>touch</control></supports>
+  <releases><release version="0.1.0" date="2026-11-01"><description><p>Initial local audio workflows and optional Audible integration.</p></description></release></releases>
+</component>

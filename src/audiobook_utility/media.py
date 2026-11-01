@@ -187,13 +187,18 @@ def merge(sources: list[Path], target: Path, cancel: threading.Event,
         raise UtilityError("Import at least one track.")
     if target.suffix.lower() not in {".m4b", ".mp3"}:
         raise UtilityError("Select an M4B or MP3 output.")
-    infos = [probe(p) for p in sources]
+    infos = []
+    for path in sources:
+        if cancel.is_set():
+            raise Cancelled("Merge canceled.")
+        infos.append(probe(path))
     total = sum(i.duration for i in infos)
     if titles is not None and len(titles) != len(infos):
         raise UtilityError("Each track needs a chapter title.")
     if temporary_dir:
         temporary_dir.mkdir(parents=True, exist_ok=True)
-    required = int(total * 48000 * 2 * 2 * 1.1)
+    required = int(((total + max(i.duration for i in infos)) * 48000 * 2 * 2
+                    + total * bitrate * 1000 / 8) * 1.1)
     if shutil.disk_usage(temporary_dir or tempfile.gettempdir()).free < required:
         raise UtilityError("Insufficient temporary disk space; merging needs about 192 KB per second of audio.")
     with tempfile.TemporaryDirectory(prefix="audiobook-", dir=temporary_dir) as workspace:

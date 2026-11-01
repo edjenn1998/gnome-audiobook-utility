@@ -9,6 +9,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from . import APP_ID
 from .audible_service import AudibleService
+from .diagnostics import record_exception
 from .files import Cancelled, UtilityError, destination, natural_key
 from .media import convert, dependencies, merge, probe
 from .metadata import FIELDS, edit, read_tags, validate_artwork
@@ -20,6 +21,7 @@ AUDIO_SUFFIXES = {".mp3", ".m4a", ".m4b", ".aac", ".flac", ".wav", ".ogg", ".opu
 
 def button(label, callback, icon=None):
     result = Gtk.Button(label=label) if not icon else Gtk.Button(icon_name=icon, tooltip_text=label)
+    result.update_property([Gtk.AccessibleProperty.LABEL], [label])
     result.connect("clicked", lambda *_: callback())
     return result
 
@@ -64,6 +66,8 @@ class TagForm(Gtk.Box):
         self.window.work("Loading cover", operation, loaded)
 
     def set_art(self, data):
+        if data:
+            validate_artwork(data)
         self.artwork = data
         self.picture.set_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(data)) if data else None)
 
@@ -79,9 +83,11 @@ class TagForm(Gtk.Box):
 class Window(Adw.ApplicationWindow):
     def __init__(self, application):
         super().__init__(application=application, title="Audiobook Utility", default_width=960, default_height=780)
+        Gtk.Window.set_default_icon_name(APP_ID)
         self.cancel = threading.Event()
         self.busy = False
         self.last_output = None
+        self.last_download = None
         self.tracks = []
         self.convert_paths = []
         self.metadata_path = None
@@ -100,21 +106,25 @@ class Window(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(switcher)
         header.pack_end(button("Preferences", self.preferences, "emblem-system-symbolic"))
+        header.pack_end(button("About Audiobook Utility", self.about, "help-about-symbolic"))
         outer.append(header)
         outer.append(self.stack)
         bottom_switcher = Adw.ViewSwitcherBar(stack=self.stack)
-        bottom_switcher.set_reveal(True)
-        # Compact windows use the bottom switcher; both remain keyboard accessible.
+        bottom_switcher.set_reveal(False)
+        # Navigation moves to the bottom in compact windows.
         breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 650sp"))
         breakpoint.add_setter(switcher, "visible", False)
+        breakpoint.add_setter(bottom_switcher, "reveal", True)
+        self.compact_breakpoint = breakpoint
         self.add_breakpoint(breakpoint)
         self.status = Gtk.Label(label="Ready", xalign=0, wrap=True, selectable=True)
         self.progress = Gtk.ProgressBar(show_text=True)
+        self.progress.update_property([Gtk.AccessibleProperty.LABEL], ["Operation progress"])
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=18,
                          margin_end=18, margin_top=12, margin_bottom=12)
         footer.append(self.status)
         footer.append(self.progress)
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         self.cancel_button = button("Cancel Operation", self.cancel.set)
         self.cancel_button.set_sensitive(False)
         actions.append(self.cancel_button)
@@ -150,6 +160,11 @@ class Window(Adw.ApplicationWindow):
             return True
         return False
 
+    def adaptive_actions(self):
+        box = Gtk.Box(spacing=6)
+        self.compact_breakpoint.add_setter(box, "orientation", Gtk.Orientation.VERTICAL)
+        return box
+
     def close_requested(self, *_):
         if self.busy:
             self.cancel.set()
@@ -166,9 +181,9 @@ class Window(Adw.ApplicationWindow):
         self.stack.add_titled_with_icon(scroll, name, title, icon)
 
     def error(self, message):
-        dialog = Adw.MessageDialog(transient_for=self, heading="Operation could not finish", body=message)
+        dialog = Adw.AlertDialog(heading="Operation could not finish", body=message)
         dialog.add_response("close", "Close")
-        dialog.present()
+        dialog.present(self)
         return False
 
     def choose(self, callback, multiple=False, folder=False, images=False):
@@ -235,8 +250,10 @@ class Window(Adw.ApplicationWindow):
             except Cancelled as exc:
                 failure = (str(exc), False)
             except (UtilityError, OSError) as exc:
+                record_exception(exc)
                 failure = (str(exc), True)
-            except Exception:
+            except Exception as exc:
+                record_exception(exc)
                 failure = ("Unexpected operation failure. Check the input and restart the application before retrying.", True)
             def finish():
                 self.busy = False
@@ -249,7 +266,11 @@ class Window(Adw.ApplicationWindow):
                 else:
                     self.progress.set_fraction(1)
                     self.status.set_text("Operation complete")
-                    done(result)
+                    try:
+                        done(result)
+                    except (UtilityError, OSError, GLib.Error) as exc:
+                        record_exception(exc)
+                        self.error("The operation finished, but its result could not be displayed. Check the output file and artwork format.")
             GLib.idle_add(finish)
         threading.Thread(target=worker, daemon=False).start()
 
@@ -261,9 +282,9 @@ class Window(Adw.ApplicationWindow):
             self.error("The output folder cannot be opened. Complete an operation or select an existing directory.")
 
     def convert_download(self):
-        if self.last_output and self.last_output.exists():
+        if self.last_download and self.last_download.exists():
             self.stack.set_visible_child_name("convert")
-            self.import_convert([self.last_output])
+            self.import_convert([self.last_download])
         else:
             self.error("Download an audiobook first.")
 
@@ -271,13 +292,14 @@ class Window(Adw.ApplicationWindow):
         dropdown = Gtk.DropDown.new_from_strings(["M4B (AAC)", "MP3"])
         dropdown.set_selected(0 if self.settings.format == "m4b" else 1)
         dropdown.set_tooltip_text("Output format; M4B supports portable audiobook chapters")
+        dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Output audio format"])
         return dropdown
 
     def convert_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.append(Gtk.Label(label="Convert audiobooks", xalign=0, css_classes=["title-1"]))
         box.append(Gtk.Label(label="Import or drop local audio. Original files are always preserved.", xalign=0, wrap=True))
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         actions.append(button("Import Files…", lambda: self.choose(self.import_convert, multiple=True)))
         actions.append(button("Clear", lambda: (self.convert_paths.clear(), clear(self.convert_list))))
         self.convert_format = self.format_picker()
@@ -287,6 +309,7 @@ class Window(Adw.ApplicationWindow):
         box.append(self.convert_list)
         start = button("Convert Imported Files", self.start_convert)
         start.add_css_class("suggested-action")
+        start.set_halign(Gtk.Align.END)
         box.append(start)
         self.drop_target(box, self.import_convert)
         return box
@@ -339,7 +362,7 @@ class Window(Adw.ApplicationWindow):
     def merge_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.append(Gtk.Label(label="Merge chapter files", xalign=0, css_classes=["title-1"]))
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         actions.append(button("Import Files…", lambda: self.choose(self.import_merge, multiple=True)))
         actions.append(button("Import Folder…", lambda: self.choose(self.import_folder, folder=True)))
         actions.append(button("Natural Sort", self.sort_tracks))
@@ -361,6 +384,7 @@ class Window(Adw.ApplicationWindow):
         box.append(expander)
         start = button("Merge Audiobook", self.start_merge)
         start.add_css_class("suggested-action")
+        start.set_halign(Gtk.Align.END)
         box.append(start)
         self.drop_target(box, self.import_merge)
         return box
@@ -444,7 +468,7 @@ class Window(Adw.ApplicationWindow):
         box.append(self.metadata_label)
         self.tag_form = TagForm(self)
         box.append(self.tag_form)
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         actions.append(button("Save Changes", self.save_metadata))
         actions.append(button("Restore from File", lambda: self.open_metadata(self.metadata_path) if self.metadata_path else None))
         box.append(actions)
@@ -463,14 +487,14 @@ class Window(Adw.ApplicationWindow):
             self.error("Open an audiobook before saving tags.")
             return
         path, tags, art = self.metadata_path, self.tag_form.values(), self.tag_form.artwork
-        self.work("Saving metadata", lambda *_: edit(path, tags, art), self.completed)
+        self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), self.completed)
 
     def audible_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.append(Gtk.Label(label="Audible.com library", xalign=0, css_classes=["title-1"]))
         self.account_label = Gtk.Label(label="US marketplace · Connect or refresh to check your saved session", xalign=0, wrap=True)
         box.append(self.account_label)
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         actions.append(button("Connect…", self.connect_audible))
         actions.append(button("Disconnect", lambda: self.work("Disconnecting", lambda *_: self.service.disconnect(), self.disconnected)))
         actions.append(button("Refresh Library", self.refresh_library))
@@ -480,7 +504,7 @@ class Window(Adw.ApplicationWindow):
         box.append(self.search)
         self.book_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.append(self.book_list)
-        actions = Gtk.Box(spacing=6)
+        actions = self.adaptive_actions()
         actions.append(button("Select Visible", lambda: self.select_books(True)))
         actions.append(button("Clear Selection", lambda: self.select_books(False)))
         actions.append(button("Download Selected / Retry", self.download_selected))
@@ -498,7 +522,7 @@ class Window(Adw.ApplicationWindow):
                     self.error("Could not open the system browser. Configure a default browser and try again.")
                     ready.set()
                     return
-                dialog = Adw.MessageDialog(transient_for=self, heading="Finish sign-in in your browser",
+                dialog = Adw.AlertDialog(heading="Finish sign-in in your browser",
                     body="Complete Amazon sign-in and any security checks in your browser. The final page may report an error. Paste its complete maplanding URL below. This URL contains a temporary authorization code.")
                 entry = Gtk.PasswordEntry(show_peek_icon=True)
                 entry.set_tooltip_text("Final Amazon redirect URL (sensitive)")
@@ -511,7 +535,7 @@ class Window(Adw.ApplicationWindow):
                     entry.set_text("")
                     ready.set()
                 dialog.connect("response", response)
-                dialog.present()
+                dialog.present(self)
             GLib.idle_add(prompt)
             while not ready.wait(0.1):
                 if self.cancel.is_set():
@@ -559,6 +583,7 @@ class Window(Adw.ApplicationWindow):
                 picture.set_alternative_text(f"Cover of {book.title}")
                 row.add_prefix(picture)
             check = Gtk.CheckButton(active=self.book_checks.get(book.asin, False), tooltip_text=f"Select {book.title}")
+            check.update_property([Gtk.AccessibleProperty.LABEL], [f"Select {book.title}"])
             check.set_sensitive(book.downloadable)
             check.connect("toggled", lambda widget, asin=book.asin: self.book_checks.update({asin: widget.get_active()}))
             row.add_prefix(check)
@@ -586,6 +611,7 @@ class Window(Adw.ApplicationWindow):
                     outputs.append(path)
                     def completed_book(b=book, p=path):
                         b.local_path = p
+                        self.last_download = p
                         self.book_checks[b.asin] = False
                         self.completed(p)
                         self.render_books()
@@ -602,7 +628,7 @@ class Window(Adw.ApplicationWindow):
     def preferences(self):
         if self.busy:
             return
-        dialog = Adw.PreferencesWindow(transient_for=self, modal=True, title="Preferences", default_width=650, default_height=700)
+        dialog = Adw.PreferencesDialog(title="Preferences", content_width=650, content_height=700)
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup(title="Files and audio")
         rows = {}
@@ -640,7 +666,15 @@ class Window(Adw.ApplicationWindow):
         group.add(button("Save Preferences", save))
         page.add(group)
         dialog.add(page)
-        dialog.present()
+        dialog.present(self)
+
+    def about(self):
+        dialog = Adw.AboutDialog(application_name="Audiobook Utility",
+            application_icon=APP_ID, version="0.1.0", license_type=Gtk.License.AGPL_3_0_ONLY,
+            comments="Convert, merge and tag audiobooks. Free software under the GNU AGPL version 3; no warranty.")
+        dialog.add_legal_section("Third-party components", None, Gtk.License.CUSTOM,
+            "Uses audible (AGPLv3), Mutagen (GPLv2 or later), GTK/Libadwaita/PyGObject (LGPL), FFmpeg, Pillow, HTTPX and SecretStorage. See THIRD_PARTY.md in the source distribution for attribution and license obligations.")
+        dialog.present(self)
 
 
 class Application(Adw.Application):

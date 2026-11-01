@@ -1,0 +1,20 @@
+# Runtime versions exercised on Python 3.14. PyGObject and native libraries are system packages.
+audible==0.13.1
+mutagen==1.48.1
+Pillow==13.0.0
+httpx==0.28.1
+SecretStorage==3.5.0
+beautifulsoup4==4.14.3
+pbkdf2==1.3
+pyaes==1.6.1
+pyasn1==0.6.3
+rsa==4.9.1
+httpcore==1.0.9
+certifi==2026.1.4
+idna==3.11
+anyio==4.16.0
+h11==0.16.0
+jeepney==0.9.0
+cryptography==46.0.5
+soupsieve==2.8.3
+typing_extensions==4.16.0

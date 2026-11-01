@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Audiobook Utility
+Comment=Convert, merge and tag audiobooks
+Exec=audiobook-utility
+Icon=io.github.edjenn1998.AudiobookUtility
+Terminal=false
+Categories=AudioVideo;Audio;AudioVideoEditing;
+Keywords=Audiobook;M4B;MP3;Audible;Metadata;
+StartupNotify=true
+StartupWMClass=io.github.edjenn1998.AudiobookUtility

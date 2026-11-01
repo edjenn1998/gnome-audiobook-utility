@@ -1,5 +1,7 @@
 import io
+import fcntl
 import shutil
+import threading
 from pathlib import Path
 
 from mutagen import File, MutagenError
@@ -8,7 +10,7 @@ from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from PIL import Image, UnidentifiedImageError
 
-from .files import UtilityError, staging
+from .files import Cancelled, UtilityError, staging
 
 FIELDS = ("title", "artist", "narrator", "series", "series_number", "album", "genre",
           "publisher", "date", "description", "copyright", "language")
@@ -70,7 +72,8 @@ def read_tags(path: Path) -> tuple[dict[str, str], bytes | None]:
     if audio.tags:
         comments = audio.tags.getall("COMM")
         preferred = next((c for c in comments if c.desc == "description"), None)
-        values["description"] = str(preferred or comments[0]) if comments else ""
+        standard = next((c for c in comments if c.desc == ""), None)
+        values["description"] = str(preferred or standard) if preferred or standard else ""
         covers = audio.tags.getall("APIC")
         return values, covers[0].data if covers else None
     return values, None
@@ -110,7 +113,9 @@ def write_tags(path: Path, values: dict[str, str], artwork: bytes | None):
                     if value:
                         audio.tags.add(TXXX(encoding=3, desc=desc, text=[value]))
                 elif field == "description":
-                    audio.tags.delall("COMM:description")
+                    for comment in audio.tags.getall("COMM"):
+                        if comment.desc in {"", "description"}:
+                            del audio.tags[comment.HashKey]
                     if value:
                         audio.tags.add(COMM(encoding=3, lang="eng", desc="description", text=[value]))
             audio.tags.delall("APIC")
@@ -121,13 +126,29 @@ def write_tags(path: Path, values: dict[str, str], artwork: bytes | None):
         raise UtilityError("Could not write tags. No source file was replaced.") from exc
 
 
-def edit(path: Path, values: dict[str, str], artwork: bytes | None):
-    from .media import probe, verify
+def edit(path: Path, values: dict[str, str], artwork: bytes | None,
+         cancel: threading.Event | None = None):
     path = path.resolve(strict=True)
+    with path.open("rb") as source:
+        try:
+            fcntl.flock(source.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise UtilityError("Another operation is editing this file. Try again after it finishes.") from exc
+        return _edit_locked(path, values, artwork, cancel)
+
+
+def _edit_locked(path: Path, values: dict[str, str], artwork: bytes | None,
+                 cancel: threading.Event | None):
+    from .media import probe, verify
     before = path.stat()
     info = probe(path)
     with staging(path, replace=True) as temporary:
-        shutil.copy2(path, temporary)
+        with path.open("rb") as source, temporary.open("wb") as output:
+            while chunk := source.read(1024 * 1024):
+                if cancel and cancel.is_set():
+                    raise Cancelled("Metadata edit canceled; the original is unchanged.")
+                output.write(chunk)
+        shutil.copystat(path, temporary)
         write_tags(temporary, values, artwork)
         verify(temporary, info.duration)
         readback, actual_art = read_tags(temporary)
@@ -136,4 +157,6 @@ def edit(path: Path, values: dict[str, str], artwork: bytes | None):
         now = path.stat()
         if (now.st_ino, now.st_mtime_ns, now.st_size) != (before.st_ino, before.st_mtime_ns, before.st_size):
             raise UtilityError("The source changed during editing. Reload before saving.")
+        if cancel and cancel.is_set():
+            raise Cancelled("Metadata edit canceled; the original is unchanged.")
     return path

@@ -14,9 +14,33 @@ guarantee of service compatibility.
 | [audible-cli](https://github.com/mkb79/audible-cli) | AGPL-3.0; pushed 2026-10-30. Inspected `models.py`, `cmds/cmd_download.py`, downloader tests. Authenticated library pagination, content license requests, offline URLs, MPEG versus AAXC selection and voucher processing. Issue #328 requests testers for upcoming login. | Use as protocol reference rather than adding Click, terminal dialogs and CLI configuration to a GTK application. Request shape follows inspected upstream; no invented API. |
 | [FFmpeg](https://ffmpeg.org/legal.html) | LGPL-2.1-or-later default; GPL options and nonfree options change binary redistribution terms. FFprobe inspects containers/codecs; FFmpeg provides AAC/MP3, chapters, concat and AAX input support. | Invoke system executables, no shell. Do not bundle nonfree builds. AAXC support varies by build; unsupported encrypted inputs are preserved and rejected clearly. |
 
+The checked OpenAudible source identifies itself as **1.1.8** in
+`desktop/swt/manager/Version.java`, while pom.xml says 1.1. It depends on Java 8,
+HtmlUnit 2.23, Gson 2.2.4, SWT 4.6 and a Bintray repository. This concrete source
+evidence, rather than recent release tags, establishes that the public source is
+historical and unsuitable as a current authentication backend.
+
+Libation's checked `AaxDecrypter.csproj` targets **.NET 10** and references
+`AAXClean.Codecs` 3.1.0. Its `AaxcDownloadConvertBase` opens AAX, AAXC and DASH
+with AAXClean/Mpeg4Lib, and its AudibleUtilities tree includes Widevine handling
+and Google.Protobuf. [AAXClean](https://github.com/Mbucari/AAXClean) and
+[AAXClean.Codecs](https://github.com/Mbucari/AAXClean.Codecs) are active GPL-3.0
+alternatives (both pushed 2026-10-26). They would warrant a small .NET backend
+if FFmpeg becomes insufficient, but add runtime/distribution and IPC obligations.
+No Widevine/CDM code or device material is imported into this application.
+Newer formats outside the adapter's supported license response are rejected.
+
+Maintainer documentation and implementation references checked include the
+[audible documentation](https://audible.readthedocs.io/),
+[CLI source](https://github.com/mkb79/audible-cli/tree/master/src/audible_cli),
+[Libation download source](https://github.com/rmcrackan/Libation/tree/master/Source/AaxDecrypter),
+[FFmpeg formats](https://ffmpeg.org/ffmpeg-formats.html),
+[PyGObject guidance](https://pygobject.gnome.org/) and
+[Libadwaita API](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/).
+
 ## Selected design
 
-Python 3.12+, GTK4 4.10+, Libadwaita 1.4+, PyGObject. Presentation is separate
+Python 3.12+, GTK4 4.10+, Libadwaita 1.5+, PyGObject. Presentation is separate
 from media operations, metadata, filesystem transactions, settings and Audible.
 One cancellable background operation runs at a time per window; worker callbacks
 reach GTK only through GLib. No database, media player, network daemon or catalog.

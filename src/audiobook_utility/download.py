@@ -24,8 +24,8 @@ def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_
                         response.raise_for_status()
                         if response.url.scheme != "https":
                             raise UtilityError("The download redirected to an insecure connection.")
-                        content_type = response.headers.get("content-type", "").split(";", 1)[0]
-                        if content_type not in {"audio/aax", "audio/vnd.audible.aax", "audio/mp4", "audio/mpeg", "application/octet-stream", "binary/octet-stream", "application/aax"}:
+                        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                        if content_type not in {"audio/aax", "audio/vnd.audible.aax", "audio/audible", "audio/mp4", "audio/x-m4a", "audio/mpeg", "audio/mp3", "application/octet-stream", "binary/octet-stream", "application/aax"}:
                             raise UtilityError("The service returned an unsupported response instead of audiobook audio.")
                         try:
                             expected = int(response.headers.get("content-length", "0"))

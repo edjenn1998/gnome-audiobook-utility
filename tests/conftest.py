@@ -3,6 +3,16 @@ import subprocess
 import pytest
 
 
+@pytest.fixture(scope="session")
+def native_app():
+    pytest.importorskip("gi")
+    from audiobook_utility.ui import Application
+    app = Application()
+    assert app.register()
+    yield app
+    app.quit()
+
+
 @pytest.fixture
 def audio(tmp_path):
     def create(name="chapter 1.mp3", duration=0.5, rate=44100, frequency=440):
