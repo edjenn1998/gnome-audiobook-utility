@@ -1,0 +1,14 @@
+#!/bin/sh
+# Keep test state and temporary media in this checkout, separate from real accounts.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+mkdir -p "$ROOT/dist/tmp"
+export TMPDIR="$ROOT/dist/tmp"
+export XDG_CONFIG_HOME="$ROOT/dist/test-config"
+export XDG_DATA_HOME="$ROOT/dist/test-data"
+export XDG_CACHE_HOME="$ROOT/dist/test-cache"
+export XDG_STATE_HOME="$ROOT/dist/test-state"
+export PYTHONDONTWRITEBYTECODE=1
+"$ROOT/tools/run-local" "$ROOT/.venv/bin/python" -m pytest "$ROOT/tests" -q --basetemp="$ROOT/dist/pytest-local" "$@"
+"$ROOT/.venv/bin/ruff" check "$ROOT/src" "$ROOT/tests" "$ROOT/tools"
+git -C "$ROOT" diff --check

@@ -31,6 +31,8 @@ the installed distribution metadata and license files during development:
 | typing_extensions | 4.16.0 | PSF-2.0; Python Software Foundation |
 | PyGObject | 3.56.2 | LGPL-2.1-or-later; PyGObject contributors |
 | GTK / GLib / Libadwaita | system | LGPL-2.1-or-later; GNOME contributors (individual files may differ) |
+| WebKitGTK / JavaScriptCore | system 2.54.2, WebKit 6.0 API | WebKit contributors; LGPL/BSD API code with additional bundled-component licenses; https://webkitgtk.org/ and the distribution's full package notices |
+| libsoup 3 | system | LGPL-2.1-or-later; GNOME contributors; used for ephemeral WebKit browser cookies |
 | FFmpeg / FFprobe | system 8.0.1 checked | LGPL-2.1-or-later default, GPL-2.0-or-later or GPL-3.0-or-later depending on enabled components; FFmpeg contributors |
 
 Mutagen may be used under GPLv3, whose section 13 permits combination with

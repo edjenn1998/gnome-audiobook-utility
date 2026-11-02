@@ -27,3 +27,4 @@ htmlcov/
 *.voucher
 *.part
 *.log
+/MIGRATION_MANIFEST.json

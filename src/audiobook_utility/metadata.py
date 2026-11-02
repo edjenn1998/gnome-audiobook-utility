@@ -20,6 +20,7 @@ MP4_KEYS = {
     "series": "----:com.apple.iTunes:SERIES", "series_number": "----:com.apple.iTunes:SERIES-PART",
     "publisher": "----:com.apple.iTunes:Publisher", "language": "----:com.apple.iTunes:LANGUAGE",
 }
+MP4_ALIASES = {"description": ("ldes", "\xa9des"), "publisher": ("\xa9pub",)}
 ID3_KEYS = {
     "title": TIT2, "artist": TPE1, "narrator": TPE2, "album": TALB, "genre": TCON,
     "publisher": TPUB, "date": TDRC, "copyright": TCOP, "language": TLAN,
@@ -59,7 +60,8 @@ def read_tags(path: Path) -> tuple[dict[str, str], bytes | None]:
     tags = audio.tags or {}
     if isinstance(audio, MP4):
         for field, key in MP4_KEYS.items():
-            raw = tags.get(key, [""])[0]
+            keys = ("ldes", key, "\xa9des") if field == "description" else (key, *MP4_ALIASES.get(field, ()))
+            raw = next((tags[k][0] for k in keys if tags.get(k)), "")
             values[field] = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
         art = tags.get("covr", [None])[0]
         return values, bytes(art) if art else None
@@ -95,8 +97,15 @@ def write_tags(path: Path, values: dict[str, str], artwork: bytes | None):
             for field, value in values.items():
                 key = MP4_KEYS[field]
                 audio.tags.pop(key, None)
+                for alias in MP4_ALIASES.get(field, ()):
+                    audio.tags.pop(alias, None)
                 if value:
                     audio.tags[key] = [MP4FreeForm(value.encode()) if key.startswith("----") else value]
+                    if field == "description":
+                        # Players commonly use ldes for full-length summaries.
+                        audio.tags["ldes"] = [value]
+                    elif field == "publisher":
+                        audio.tags["\xa9pub"] = [value]
             audio.tags.pop("covr", None)
             if artwork:
                 audio.tags["covr"] = [MP4Cover(artwork, imageformat=MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG)]

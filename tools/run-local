@@ -1,8 +1,8 @@
 #!/bin/sh
-# Use optional extracted CI runtimes without changing system configuration.
+# Native tools by default; extracted headless CI runtimes require explicit opt-in.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-if [ -d "$ROOT/.deps/usr" ]; then
+if [ "${AUDIOBOOK_USE_BUNDLED_DEPS:-0}" = 1 ] && [ -d "$ROOT/.deps/usr" ]; then
     export PATH="$ROOT/.deps/usr/bin:$PATH"
     export LD_LIBRARY_PATH="$ROOT/.deps/usr/lib/x86_64-linux-gnu:$ROOT/.deps/usr/lib/x86_64-linux-gnu/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export GI_TYPELIB_PATH="$ROOT/.deps/usr/lib/x86_64-linux-gnu/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"

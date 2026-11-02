@@ -76,3 +76,35 @@ def test_metadata_cancel_preserves_source(audio):
     with pytest.raises(Cancelled):
         edit(source, {"title": "Must not change"}, None, cancel)
     assert source.read_bytes() == original
+
+
+@pytest.mark.parametrize("suffix", ["mp3", "m4b"])
+def test_audible_summary_and_publisher_transfer(audio, artwork, tmp_path, suffix):
+    import threading
+
+    from mutagen.mp4 import MP4
+
+    from audiobook_utility.media import convert
+    from audiobook_utility.metadata import write_tags
+
+    source = audio("audible-tags.m4a")
+    write_tags(source, {"narrator": "Test narrator"}, artwork())
+    original = MP4(source)
+    summary = "A long audiobook summary.\n" * 400
+    original.tags["\xa9des"] = [summary]
+    original.tags["\xa9pub"] = ["Test publisher"]
+    original.save()
+    before = source.read_bytes()
+    target = tmp_path / f"converted.{suffix}"
+    convert(source, target, threading.Event())
+    values, art = read_tags(target)
+    assert values["description"] == summary
+    assert values["publisher"] == "Test publisher"
+    assert values["narrator"] == "Test narrator"
+    assert art == artwork()
+    assert source.read_bytes() == before
+    edit(target, {"description": "", "publisher": ""}, art)
+    assert read_tags(target)[0]["description"] == ""
+    assert read_tags(target)[0]["publisher"] == ""
+    if suffix == "m4b":
+        assert all(key not in MP4(target).tags for key in ("desc", "ldes", "\xa9des", "\xa9pub"))

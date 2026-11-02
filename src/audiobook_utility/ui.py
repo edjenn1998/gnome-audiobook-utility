@@ -31,6 +31,24 @@ def clear(box):
         box.remove(child)
 
 
+def row_list():
+    return Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"])
+
+
+class SummaryEditor(Gtk.TextView):
+    def __init__(self):
+        super().__init__(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=12, bottom_margin=12,
+                         left_margin=12, right_margin=12)
+        self.update_property([Gtk.AccessibleProperty.LABEL], ["Description / Summary"])
+
+    def set_text(self, value):
+        self.get_buffer().set_text(value)
+
+    def get_text(self):
+        buffer = self.get_buffer()
+        return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+
+
 class TagForm(Gtk.Box):
     def __init__(self, window):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -40,10 +58,19 @@ class TagForm(Gtk.Box):
         group = Adw.PreferencesGroup(title="Audiobook metadata")
         labels = {"artist": "Author / Artist", "date": "Publication date", "description": "Description / Summary"}
         for field in FIELDS:
+            if field == "description":
+                continue
             row = Adw.EntryRow(title=labels.get(field, field.replace("_", " ").title()))
             self.entries[field] = row
             group.add(row)
         self.append(group)
+        self.append(Gtk.Label(label="Description / Summary", xalign=0))
+        self.entries["description"] = SummaryEditor()
+        summary = Gtk.ScrolledWindow(min_content_height=140, max_content_height=240,
+                                     propagate_natural_height=True,
+                                     hscrollbar_policy=Gtk.PolicyType.NEVER)
+        summary.set_child(self.entries["description"])
+        self.append(Gtk.Frame(child=summary))
         self.picture = Gtk.Picture(height_request=160, width_request=120, can_shrink=True,
                                    content_fit=Gtk.ContentFit.CONTAIN)
         self.picture.set_alternative_text("Audiobook cover preview")
@@ -93,6 +120,7 @@ class Window(Adw.ApplicationWindow):
         self.metadata_path = None
         self.books = []
         self.book_checks = {}
+        self.login_window = None
         self.service = AudibleService()
         try:
             self.settings = Settings.load()
@@ -129,12 +157,14 @@ class Window(Adw.ApplicationWindow):
         self.cancel_button.set_sensitive(False)
         actions.append(self.cancel_button)
         actions.append(button("Open Output Folder", self.open_output))
-        actions.append(button("Convert Last Download", self.convert_download))
+        self.convert_download_button = button("Convert Last Download", self.convert_download)
+        self.convert_download_button.set_sensitive(False)
+        actions.append(self.convert_download_button)
         footer.append(actions)
         outer.append(footer)
         outer.append(bottom_switcher)
         self.set_content(outer)
-        self.add_page(self.audible_page(), "audible", "Audible", "network-server-symbolic")
+        self.add_page(self.audible_page(), "audible", "Audible", "network-server-symbolic", scrollable=False)
         self.add_page(self.convert_page(), "convert", "Convert", "audio-x-generic-symbolic")
         self.add_page(self.merge_page(), "merge", "Merge", "view-list-symbolic")
         self.add_page(self.metadata_page(), "metadata", "Metadata", "document-edit-symbolic")
@@ -156,7 +186,10 @@ class Window(Adw.ApplicationWindow):
             return True
         if key == Gdk.KEY_o and state & Gdk.ModifierType.CONTROL_MASK:
             page = self.stack.get_visible_child_name()
-            self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
+            if page == "metadata":
+                self.choose(lambda paths: self.open_metadata(paths[0]))
+            else:
+                self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
             return True
         return False
 
@@ -172,7 +205,10 @@ class Window(Adw.ApplicationWindow):
             return True
         return False
 
-    def add_page(self, widget, name, title, icon):
+    def add_page(self, widget, name, title, icon, scrollable=True):
+        if not scrollable:
+            self.stack.add_titled_with_icon(widget, name, title, icon)
+            return
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         clamp = Adw.Clamp(maximum_size=820, tightening_threshold=600, margin_start=18,
                           margin_end=18, margin_top=18, margin_bottom=18)
@@ -236,6 +272,7 @@ class Window(Adw.ApplicationWindow):
         self.cancel.clear()
         self.stack.set_sensitive(False)
         self.cancel_button.set_sensitive(True)
+        self.update_library_actions()
         self.status.set_text(title)
         self.progress.set_fraction(0)
         def progress(value, text):
@@ -271,6 +308,7 @@ class Window(Adw.ApplicationWindow):
                     except (UtilityError, OSError, GLib.Error) as exc:
                         record_exception(exc)
                         self.error("The operation finished, but its result could not be displayed. Check the output file and artwork format.")
+                self.update_library_actions()
             GLib.idle_add(finish)
         threading.Thread(target=worker, daemon=False).start()
 
@@ -305,7 +343,7 @@ class Window(Adw.ApplicationWindow):
         self.convert_format = self.format_picker()
         actions.append(self.convert_format)
         box.append(actions)
-        self.convert_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.convert_list = row_list()
         box.append(self.convert_list)
         start = button("Convert Imported Files", self.start_convert)
         start.add_css_class("suggested-action")
@@ -320,19 +358,20 @@ class Window(Adw.ApplicationWindow):
             for path in paths:
                 if cancel.is_set():
                     raise Cancelled("Import canceled.")
-                if path.suffix.lower() in {".aax", ".aaxc"}:
-                    result.append((path, None))
-                else:
-                    result.append((path, probe(path)))
+                progress(0, "Resolving input license and inspecting audio")
+                options = self.service.input_options(path, cancel)
+                result.append((path, probe(path, options)))
             return result
         def done(items):
             for path, info in items:
                 if path in self.convert_paths:
                     continue
                 self.convert_paths.append(path)
-                text = "Protected Audible input; account license required" if info is None else (
+                text = (
                     f"{info.codec} · {info.duration / 60:.1f} min · {info.bitrate // 1000} kb/s · "
                     f"{info.sample_rate} Hz · {info.channels} channel(s) · {info.size / 1048576:.1f} MiB · {len(info.chapters)} chapters")
+                if path.suffix.lower() in {".aax", ".aaxc"}:
+                    text += " · Audible license loaded"
                 row = Adw.ActionRow(title=path.name, subtitle=text)
                 self.convert_list.append(row)
         self.work("Inspecting audio", inspect, done)
@@ -347,7 +386,8 @@ class Window(Adw.ApplicationWindow):
         def operation(cancel, progress):
             outputs = []
             for index, source in enumerate(paths):
-                options = self.service.input_options(source)
+                progress(index / len(paths), "Resolving input license and inspecting audio")
+                options = self.service.input_options(source, cancel)
                 target = destination(Path(settings.output), source.stem, suffix, settings.conflict)
                 convert(source, target, cancel, lambda p, s, i=index: progress((i + p) / len(paths), s),
                         settings.aac_bitrate if suffix == ".m4b" else settings.mp3_bitrate, options)
@@ -367,12 +407,14 @@ class Window(Adw.ApplicationWindow):
         actions.append(button("Import Folder…", lambda: self.choose(self.import_folder, folder=True)))
         actions.append(button("Natural Sort", self.sort_tracks))
         box.append(actions)
-        self.track_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.track_list = row_list()
         box.append(self.track_list)
         self.total_label = Gtk.Label(label="No tracks imported", xalign=0)
         box.append(self.total_label)
         self.merge_title = Adw.EntryRow(title="Output filename (without extension)", text="Audiobook")
-        box.append(self.merge_title)
+        filename_group = Adw.PreferencesGroup()
+        filename_group.add(self.merge_title)
+        box.append(filename_group)
         self.merge_format = self.format_picker()
         box.append(self.merge_format)
         self.chapter_check = Gtk.CheckButton(label="Use each track as an M4B chapter", active=self.settings.chapters)
@@ -490,67 +532,87 @@ class Window(Adw.ApplicationWindow):
         self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), self.completed)
 
     def audible_page(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.append(Gtk.Label(label="Audible.com library", xalign=0, css_classes=["title-1"]))
-        self.account_label = Gtk.Label(label="US marketplace · Connect or refresh to check your saved session", xalign=0, wrap=True)
-        box.append(self.account_label)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        header.append(Gtk.Label(label="Audible.com library", xalign=0, css_classes=["title-1"]))
+        self.account_label = Gtk.Label(label="US marketplace · Log in or refresh to use your saved session", xalign=0, wrap=True)
+        header.append(self.account_label)
         actions = self.adaptive_actions()
-        actions.append(button("Connect…", self.connect_audible))
-        actions.append(button("Disconnect", lambda: self.work("Disconnecting", lambda *_: self.service.disconnect(), self.disconnected)))
+        account_actions = Gtk.Box(spacing=6)
+        account_actions.append(button("Login to Audible", self.connect_audible))
+        account_actions.append(button("Disconnect", lambda: self.work("Disconnecting", lambda *_: self.service.disconnect(), self.disconnected)))
+        actions.append(account_actions)
         actions.append(button("Refresh Library", self.refresh_library))
-        box.append(actions)
+        header.append(actions)
         self.search = Gtk.SearchEntry(placeholder_text="Search title or author")
         self.search.connect("search-changed", lambda *_: self.render_books())
-        box.append(self.search)
-        self.book_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.append(self.book_list)
-        actions = self.adaptive_actions()
-        actions.append(button("Select Visible", lambda: self.select_books(True)))
-        actions.append(button("Clear Selection", lambda: self.select_books(False)))
-        actions.append(button("Download Selected / Retry", self.download_selected))
-        box.append(actions)
+        header.append(self.search)
+        self.library_toolbar = self.adaptive_actions()
+        self.select_visible_button = button("Select Visible", lambda: self.select_books(True))
+        self.clear_selection_button = button("Clear Selection", lambda: self.select_books(False))
+        self.clear_selection_button.set_tooltip_text("Clear selected titles in the current search")
+        self.download_selected_button = button("Download Selected / Retry", self.download_selected)
+        self.download_selected_button.add_css_class("suggested-action")
+        selection_actions = Gtk.Box(spacing=6)
+        selection_actions.append(self.select_visible_button)
+        selection_actions.append(self.clear_selection_button)
+        self.library_toolbar.append(selection_actions)
+        self.library_toolbar.append(self.download_selected_button)
+        header.append(self.library_toolbar)
+        header_clamp = Adw.Clamp(maximum_size=820, tightening_threshold=600, margin_start=18,
+                                 margin_end=18, margin_top=18, margin_bottom=12)
+        header_clamp.set_child(header)
+        box.append(header_clamp)
+        self.book_list = row_list()
+        list_clamp = Adw.Clamp(maximum_size=820, tightening_threshold=600,
+                              margin_start=18, margin_end=18, margin_bottom=18)
+        list_clamp.set_child(self.book_list)
+        self.library_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        self.library_scroll.set_child(list_clamp)
+        box.append(self.library_scroll)
+        self.update_library_actions()
         return box
 
     def connect_audible(self):
+        if self.busy:
+            return
+        from .login_flow import LoginRequest
+        from .login_window import LoginWindow
+
         def callback(url):
-            ready = threading.Event()
-            result = []
+            request = LoginRequest(url, self.cancel)
             def prompt():
-                try:
-                    Gio.AppInfo.launch_default_for_uri(url, None)
-                except GLib.Error:
-                    self.error("Could not open the system browser. Configure a default browser and try again.")
-                    ready.set()
-                    return
-                dialog = Adw.AlertDialog(heading="Finish sign-in in your browser",
-                    body="Complete Amazon sign-in and any security checks in your browser. The final page may report an error. Paste its complete maplanding URL below. This URL contains a temporary authorization code.")
-                entry = Gtk.PasswordEntry(show_peek_icon=True)
-                entry.set_tooltip_text("Final Amazon redirect URL (sensitive)")
-                dialog.set_extra_child(entry)
-                dialog.add_response("cancel", "Cancel")
-                dialog.add_response("connect", "Connect")
-                def response(obj, choice):
-                    if choice == "connect":
-                        result.append(entry.get_text())
-                    entry.set_text("")
-                    ready.set()
-                dialog.connect("response", response)
-                dialog.present(self)
-            GLib.idle_add(prompt)
-            while not ready.wait(0.1):
                 if self.cancel.is_set():
-                    raise Cancelled("Sign-in canceled.")
-            if not result:
-                raise Cancelled("Sign-in canceled.")
-            return result[0]
-        self.work("Connecting to Audible", lambda *_: self.service.connect(callback),
-                  lambda *_: self.account_label.set_text("Connected to Audible.com · Refresh your library"))
+                    request.cancel()
+                    return
+                try:
+                    self.login_window = LoginWindow(self, request)
+                    self.login_window.present()
+                except UtilityError as exc:
+                    request.fail(exc)
+                except Exception as exc:
+                    record_exception(exc)
+                    request.fail(UtilityError("The sign-in browser could not start. Check WebKitGTK and try again."))
+            GLib.idle_add(prompt)
+            return request.wait()
+        def close_login():
+            if self.login_window:
+                self.login_window.finish()
+                self.login_window = None
+        def operation(cancel, progress):
+            try:
+                return self.service.connect(callback, cancel)
+            finally:
+                GLib.idle_add(close_login)
+        self.work("Connecting to Audible", operation,
+                  lambda *_: self.account_label.set_text("Connected to Audible.com · Credentials saved securely · Refresh your library"))
 
     def disconnected(self, *_):
         self.books = []
         self.book_checks.clear()
         clear(self.book_list)
         self.account_label.set_text("Disconnected · Saved session and media licenses removed from keyring")
+        self.update_library_actions()
 
     def library_loaded(self, books):
         self.books = books
@@ -575,7 +637,8 @@ class Window(Adw.ApplicationWindow):
         for book in self.books:
             if query not in f"{book.title} {book.author}".casefold():
                 continue
-            row = Adw.ActionRow(title=book.title, subtitle=f"{book.author} · {book.minutes} min" + (" · Download verified" if book.local_path else "") + (" · Unavailable for offline download" if not book.downloadable else ""))
+            availability = " · Unavailable for offline download" if not book.downloadable else ""
+            row = Adw.ActionRow(title=book.title, subtitle=f"{book.author} · {book.minutes} min" + (" · Download verified" if book.local_path else "") + availability)
             if book.cover_data:
                 picture = Gtk.Picture(paintable=Gdk.Texture.new_from_bytes(GLib.Bytes.new(book.cover_data)),
                                       width_request=48, height_request=64,
@@ -585,9 +648,25 @@ class Window(Adw.ApplicationWindow):
             check = Gtk.CheckButton(active=self.book_checks.get(book.asin, False), tooltip_text=f"Select {book.title}")
             check.update_property([Gtk.AccessibleProperty.LABEL], [f"Select {book.title}"])
             check.set_sensitive(book.downloadable)
-            check.connect("toggled", lambda widget, asin=book.asin: self.book_checks.update({asin: widget.get_active()}))
+            check.connect("toggled", lambda widget, asin=book.asin: self.selection_changed(asin, widget.get_active()))
             row.add_prefix(check)
             self.book_list.append(row)
+        self.update_library_actions()
+
+    def selection_changed(self, asin, active):
+        self.book_checks[asin] = active
+        self.update_library_actions()
+
+    def update_library_actions(self):
+        query = self.search.get_text().casefold()
+        visible = [book for book in self.books if book.downloadable
+                   and query in f"{book.title} {book.author}".casefold()]
+        selected = [book for book in self.books if book.downloadable and self.book_checks.get(book.asin)]
+        self.select_visible_button.set_sensitive(not self.busy and any(not self.book_checks.get(b.asin) for b in visible))
+        self.clear_selection_button.set_sensitive(not self.busy and any(self.book_checks.get(b.asin) for b in visible))
+        self.download_selected_button.set_sensitive(not self.busy and bool(selected))
+        self.download_selected_button.set_tooltip_text(f"Download {len(selected)} selected titles, including selections outside the current search. Failed titles stay selected for retry.")
+        self.convert_download_button.set_sensitive(not self.busy and self.last_download is not None)
 
     def select_books(self, active):
         query = self.search.get_text().casefold()
@@ -597,7 +676,7 @@ class Window(Adw.ApplicationWindow):
         self.render_books()
 
     def download_selected(self):
-        books = [b for b in self.books if self.book_checks.get(b.asin)]
+        books = [b for b in self.books if b.downloadable and self.book_checks.get(b.asin)]
         if not books:
             self.error("Select available titles to download.")
             return
@@ -619,6 +698,7 @@ class Window(Adw.ApplicationWindow):
                 except Cancelled:
                     raise
                 except UtilityError as exc:
+                    record_exception(exc)
                     failures.append(f"{book.title}: {exc}")
             if failures:
                 raise UtilityError("Some downloads could not finish. Completed titles were preserved; retry the selected failures.\n\n" + "\n".join(failures))
@@ -673,7 +753,7 @@ class Window(Adw.ApplicationWindow):
             application_icon=APP_ID, version="0.1.0", license_type=Gtk.License.AGPL_3_0_ONLY,
             comments="Convert, merge and tag audiobooks. Free software under the GNU AGPL version 3; no warranty.")
         dialog.add_legal_section("Third-party components", None, Gtk.License.CUSTOM,
-            "Uses audible (AGPLv3), Mutagen (GPLv2 or later), GTK/Libadwaita/PyGObject (LGPL), FFmpeg, Pillow, HTTPX and SecretStorage. See THIRD_PARTY.md in the source distribution for attribution and license obligations.")
+            "Uses audible (AGPLv3), Mutagen (GPLv2 or later), GTK/Libadwaita/PyGObject (LGPL), WebKitGTK/libsoup, FFmpeg, Pillow, HTTPX and SecretStorage. See THIRD_PARTY.md in the source distribution for attribution and license obligations.")
         dialog.present(self)
 
 

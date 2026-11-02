@@ -47,6 +47,18 @@ reach GTK only through GLib. No database, media player, network daemon or catalo
 JSON holds non-sensitive preferences in XDG config. Secret Service holds entire
 Audible authentication objects and media licenses. No plaintext credential fallback.
 
+Automatic login uses the same upstream external-browser callback contract inside
+a dedicated Adwaita window backed by system WebKitGTK 6.0. Its ephemeral browser
+captures the generated HTTPS maplanding redirect without clipboard interaction;
+registration/token exchange and secure persistence stay in `audible_service.py`.
+`login_flow.py` validates and synchronizes callback/cancellation state;
+`login_window.py` owns the GTK-thread browser lifetime. See `authentication-ui.md`
+for verification, privacy decisions and the pending interactive account check.
+
+The Audible page's header/search/action toolbar is a sibling of its sole list
+scroller. The main application progress/status/footer is also outside the list,
+so long libraries cannot scroll account, selection or operation controls away.
+
 FFprobe supplies stream information and output verification. Single AAC-to-M4B
 conversion uses stream copy when compatible. Merge normalizes each input to PCM
 with consistent sample rate/channels, then encodes once. This costs temporary
@@ -55,6 +67,25 @@ lossy encoding. Source-derived chapter timings use normalized sample counts.
 Same-directory temporary outputs and no-clobber hard-link publication prevent
 partial results and unintended replacement. Metadata is edited on a temporary
 copy with Mutagen and verified before atomic replacement; unknown tags survive.
+
+Protected imports resolve a verified download fingerprint to an immutable
+per-download keyring voucher. Receipt history preserves earlier downloads and
+allows moved/renamed imports; old ASIN-keyed vouchers remain compatible. No key
+material is stored in receipts. Source inspection still goes through FFprobe
+with the license applied. FFprobe's file-valued options use memfd storage;
+FFmpeg's different parser requires per-file options in a one-input concat script,
+also held in memfd. Source chapters/tags are restored through ffmetadata, AAC
+priming timestamps are preserved, and the finished protected conversion must
+fully decode before publication. Inherited FFREPORT settings are removed.
+
+Private files are referenced as `/proc/self/fd/N` in each child and explicitly
+inherited using Python's `pass_fds`, including ffmetadata input descriptors.
+Descriptors retain CLOEXEC in the parent and are not inherited by unrelated
+children. This replaces parent-PID `/proc` paths, which were dependent on
+ptrace/dumpability permission checks and failed under a reproduced restricted
+parent process. Media process errors retain bounded redacted stderr, exit status
+and operation identifiers. The on-device diagnostic checks actual tool and FD
+behavior; it makes no account API requests and creates no converted audiobook.
 
 ## Licensing
 
