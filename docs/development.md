@@ -26,7 +26,7 @@ appstreamcli validate --no-net data/io.github.edjenn1998.AudiobookUtility.metain
 ```
 
 On a live GNOME session, Xvfb is optional. For headless checks use
-`TMPDIR="$PWD/dist/tmp" dbus-run-session -- xvfb-run -a ./tools/check-local`
+`TMPDIR="$PWD/dist/tmp" xvfb-run -a dbus-run-session -- ./tools/check-local`
 (create `dist/tmp` first). The check wrapper creates fresh `dist/check-*` state,
 including JUnit results, on every invocation, plus a short private runtime directory
 alongside the checkout that it removes afterward. It isolates XDG account data and
@@ -64,7 +64,7 @@ the inherited-descriptor route inspects/converts the identical input correctly.
 It separately checks CLOEXEC, explicit inheritance, cleanup, optional `N/A`
 properties, operation/exit-status reporting, log redaction and the report CLI.
 
-`.github/workflows/check.yml` defines credential-free Ubuntu 24.04 core and full
+`.github/workflows/check.yml` defines credential-free Ubuntu 26.04 core and full
 native integration lanes. Both run lint; the native lane uses a separate D-Bus
 session and Xvfb, with synthetic WebKit callbacks and fake keyrings. CI does not
 build or publish releases or log in to Audible. Only synthetic JUnit results are

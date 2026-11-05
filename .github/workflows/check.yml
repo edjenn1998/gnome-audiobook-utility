@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   check:
-    name: ${{ matrix.lane }} (Ubuntu 24.04)
-    runs-on: ubuntu-24.04
+    name: ${{ matrix.lane }} (Ubuntu 26.04)
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -20,6 +20,7 @@ jobs:
     env:
       PIP_CACHE_DIR: ${{ github.workspace }}/dist/pip-cache
       PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONFAULTHANDLER: "1"
       GDK_BACKEND: x11
       GSK_RENDERER: cairo
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -42,7 +43,7 @@ jobs:
         if: matrix.lane == 'native'
         run: |
           export TMPDIR="$PWD/dist/tmp"
-          dbus-run-session -- xvfb-run -a ./tools/check-local
+          xvfb-run -a dbus-run-session -- ./tools/check-local -x
       - name: Retain synthetic test results
         if: always()
         uses: actions/upload-artifact@v4
