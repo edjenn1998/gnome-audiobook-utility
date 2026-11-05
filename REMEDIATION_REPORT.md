@@ -150,3 +150,52 @@ Ruff passed. Synthetic archives/binaries only; no release rebuild or account use
 These focused changes preserve native layout and appearance. Full gettext/catalog
 adoption, actual screen-reader/keyboard-only acceptance, fractional scaling and a
 long-running measured heap/FD soak remain follow-up work, not claimed results.
+
+## Phase 5 — repeatable checks and final disposition
+
+- Added `.github/workflows/check.yml` with independent core and native Ubuntu
+  24.04 lanes, locked Python runtime dependencies, lint, synthetic JUnit reports,
+  and a separate D-Bus/Xvfb native session. No account secrets or release build
+  commands are part of the workflow. YAML parsed successfully locally; hosted
+  execution remains unverified because this branch has not been published.
+- Promoted fresh-state test isolation to tracked `tools/check.py`, used by
+  `tools/check-local`: new `dist/check-*` directories, no plugin autoload/pytest
+  cache/bytecode/core dumps, isolated XDG data and temporary media, short owned
+  runtime path with cleanup. Ruff now includes packaging hooks and disables cache.
+- Updated current development/account/AppImage documentation and the unreleased
+  changelog, correcting the old logout and no-journal descriptions. Public-source
+  policy validates **81 approved tracked files**, including CI and the runner.
+- Core lane equivalent, with both display variables empty: **70 passed**, 21.52 s;
+  lint and whitespace passed.
+- Final full wrapper gate under a separate D-Bus session and existing Xwayland:
+  **191 passed**, 49.07 s; lint/whitespace passed. Xvfb is unavailable on this host
+  and was not installed. The isolated desktop session emitted portal/AT-SPI
+  service warnings, but no tests failed. The 2,313 Python warnings are upstream
+  PyGObject asyncio-policy deprecations.
+- Original review and existing AppImage SHA-256 values were rechecked and match
+  the scope-and-safeguards values above. No live Audible requests, real keyring
+  mutations, new distributable AppImage, merge, push, publication or system install.
+
+### Disposition
+
+All **24 numbered findings** have source fixes or explicit mitigations and local
+regression evidence. M12–M14 still require release-level verification of an
+owner-authorized candidate image: modified runtime imports/dependency inventory,
+real custom-CA integration, mount/sandbox behavior and the clean OS/CPU matrix in
+`docs/portability.md`. These checks cannot be inferred from source tests or the
+unchanged historical AppImage. Hosted CI execution and owner desktop/player/live
+edge-case acceptance are also pending. No universal portability, screen-reader,
+listening, CVE-audit or long-term leak-free claim is made.
+
+### Local implementation history
+
+| Commit | Phase |
+| --- | --- |
+| `77a47b0` | Baseline and safeguards |
+| `75b0f37` | High-severity fixes and transaction prerequisites |
+| `b78148b` | Medium-severity fixes and portability mitigations |
+| `8d50962` | Low-severity fixes and maintenance tools |
+| `9ef5ad3` | Native lifecycle and connection ownership |
+
+The final CI/documentation phase follows these commits on
+`remediation/code-review-2026-11-04`. The branch remains local for owner review.

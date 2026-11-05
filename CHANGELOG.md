@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — local code-review remediation
+
+- Detect protected media by container brands despite misleading extensions and
+  fully decode conversion/merge results before publication.
+- Recover download receipt/license commits with durable non-secret journals;
+  reject corrupt receipts and serialize updates without replacing earlier licenses.
+- Retain media licenses on Disconnect; provide separate confirmed Forget Licenses.
+- Validate every transfer redirect, bound retries/deadlines and cover-cache growth,
+  tolerate nullable library metadata and display external text literally.
+- Fix ADTS-first merging, explicit cover removal and temporary-path normalization.
+- Coalesce progress, recycle library rows and prepare previews off the GTK thread.
+  Prompt before discarding metadata edits and improve keyboard/lifecycle handling.
+- Restrict packaged sources to an approved tracked manifest; verify dependency
+  versions/integrity, harden launcher diagnostics and add validated CA support.
+- Keep maintenance validation active under optimized Python; capture only the
+  application widget. Add fresh-state checks and credential-free core/native CI.
+- Local suite: 191 passing tests. See `REMEDIATION_REPORT.md` for per-finding evidence
+  and deferred candidate AppImage/platform/manual acceptance. The existing 0.1.0
+  AppImage has not been rebuilt and does not contain these source changes.
+
 ## 0.1.0 — 2026-11-02
 
 First public GitHub release, including the self-contained x86_64 AppImage.

@@ -1,4 +1,5 @@
 # Explicit public source files. Additions require review and Git tracking.
+.github/workflows/check.yml
 .gitignore
 AGENTS.md
 CHANGELOG.md
@@ -73,6 +74,7 @@ tools/build-appimage.py
 tools/check-portability.py
 tools/capture.py
 tools/check-local
+tools/check.py
 tools/local-deps.py
 tools/package-migration.py
 tools/run-local

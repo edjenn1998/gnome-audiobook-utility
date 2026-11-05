@@ -107,7 +107,8 @@ These checks generate public test tones, convert/merge/tag/decode them, load cov
 art, start the real native interface, and exercise automatic callback capture in
 the bundled ephemeral WebKit browser. The network option additionally verifies
 HTTPS/DNS/certificate loading and the public Amazon sign-in form without entering
-credentials or registering an account. Runtime assertions check that Python and
+credentials or registering an account. Explicit runtime checks (also active under
+optimized Python) check that Python and
 application imports come from the private `/usr`.
 
 During development, set `TMPDIR`, the XDG config/data/cache/state paths and

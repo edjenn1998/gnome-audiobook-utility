@@ -16,7 +16,7 @@ ROOT_FILES = {
     ".gitignore", "CHANGELOG.md", "LICENSE", "MANIFEST.in", "README.md", "THIRD_PARTY.md",
     "MIGRATION.md", "OPENCODE_HANDOFF.md", "meson.build", "meson.options", "pyproject.toml",
     "requirements.lock", "AGENTS.md", "setup.py", "package_sources.py", "PACKAGING_FILES.txt",
-    "CODE_REVIEW.md", "REMEDIATION_REPORT.md",
+    "CODE_REVIEW.md", "REMEDIATION_REPORT.md", ".github/workflows/check.yml",
 }
 SOURCE_DIRS = {"src", "tests", "docs", "data", "tools"}
 EXCLUDED_PARTS = {".venv", ".deps", "__pycache__", ".pytest_cache", ".ruff_cache", "build", "dist"}

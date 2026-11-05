@@ -26,8 +26,11 @@ appstreamcli validate --no-net data/io.github.edjenn1998.AudiobookUtility.metain
 ```
 
 On a live GNOME session, Xvfb is optional. For headless checks use
-`xvfb-run -a ./tools/check-local`. The check wrapper isolates XDG state and all
-temporary media inside `dist/`; native test instances do not attach to an already
+`TMPDIR="$PWD/dist/tmp" dbus-run-session -- xvfb-run -a ./tools/check-local`
+(create `dist/tmp` first). The check wrapper creates fresh `dist/check-*` state,
+including JUnit results, on every invocation, plus a short private runtime directory
+alongside the checkout that it removes afterward. It isolates XDG account data and
+temporary media; native test instances do not attach to an already
 running application. Test samples are generated with
 FFmpeg's sine source and contain no commercial audiobooks. Tests inspect actual
 outputs, chapter timing, signal frequency/order across merge boundaries,
@@ -60,6 +63,14 @@ old parent-PID route produces a redacted permission error, then verifies that
 the inherited-descriptor route inspects/converts the identical input correctly.
 It separately checks CLOEXEC, explicit inheritance, cleanup, optional `N/A`
 properties, operation/exit-status reporting, log redaction and the report CLI.
+
+`.github/workflows/check.yml` defines credential-free Ubuntu 24.04 core and full
+native integration lanes. Both run lint; the native lane uses a separate D-Bus
+session and Xvfb, with synthetic WebKit callbacks and fake keyrings. CI does not
+build or publish releases or log in to Audible. Only synthetic JUnit results are
+uploaded. The workflow has been added locally; hosted results require publication
+and are not claimed by local validation. Candidate AppImage/CA/clean-system matrix
+acceptance remains a separate authorized release gate; see `portability.md`.
 
 The previous development host was Ubuntu/Python 3.14 without system GTK4 or FFmpeg.
 `tools/local-deps.py` downloads and extracts Ubuntu runtime packages into
@@ -106,7 +117,10 @@ Atomic publication requires a filesystem supporting hard links. On unsupported
 filesystems the operation fails safely rather than using a racy overwrite-prone
 fallback. Forced process termination/power loss can leave `.audiobook-*` staging
 files or `audiobook-*` PCM workspaces. Do not remove them during an active job.
-There is no recovery journal or auto-resume in this release.
+The remediation source adds non-secret started/ready download journals that recover
+receipt/license associations or clean up transaction-owned orphan keys. This is not
+persistent transfer resume; interrupted partial streams restart. The existing
+released AppImage predates these source changes.
 
 ## Diagnostics and manual checks
 

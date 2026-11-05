@@ -1,0 +1,52 @@
+name: Credential-free checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.lane }} (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [core, native]
+    env:
+      PIP_CACHE_DIR: ${{ github.workspace }}/dist/pip-cache
+      PYTHONDONTWRITEBYTECODE: "1"
+      GDK_BACKEND: x11
+      GSK_RENDERER: cairo
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0 ffmpeg gcc dbus-x11 xvfb xauth
+      - name: Install locked Python dependencies
+        run: |
+          mkdir -p dist/tmp
+          export TMPDIR="$PWD/dist/tmp"
+          python3 -m venv --system-site-packages .venv
+          .venv/bin/python -m pip install -r requirements.lock -e '.[dev]'
+      - name: Core media, persistence and network checks
+        if: matrix.lane == 'core'
+        run: ./tools/check-local tests/test_audible.py tests/test_download_resume.py tests/test_media.py tests/test_metadata.py tests/test_reliability.py tests/test_media_diagnostics.py
+      - name: Full native GTK and synthetic WebKit integration
+        if: matrix.lane == 'native'
+        run: |
+          export TMPDIR="$PWD/dist/tmp"
+          dbus-run-session -- xvfb-run -a ./tools/check-local
+      - name: Retain synthetic test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.lane }}
+          path: dist/check-*/junit.xml
+          if-no-files-found: ignore
