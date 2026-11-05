@@ -82,6 +82,7 @@ and GI typelibs, compiles schemas/module caches, builds a static launcher, inclu
 source/notices, and creates the AppImage. It never installs system packages. It
 downloads a checksum-pinned `go-appimage` build tool into `dist/appimage-tools/`.
 Build work, tool extraction/caches, AppDir, manifest and artifacts remain in `dist/`.
+Version-specific staging uses `dist/appimage-0.1.1/`, preserving older release work.
 The native package set and exact installed versions are recorded, so runtime
 changes are visible rather than silently assumed to be bit-for-bit reproducible.
 
@@ -117,6 +118,6 @@ for display/keyring checks. Tests here use `GDK_BACKEND=x11` for allocated nativ
 windows through GNOME/Xwayland; the application itself does not force that backend.
 
 The final verification report is stored with build artifacts under `dist/` and
-the latest session results are recorded in `docs/progress.md`. Full interactive
+the latest release results are recorded in `docs/releases/0.1.1.md`. Full interactive
 account reauthentication from the packaged browser remains an owner check unless
 explicitly recorded as tested; public form loading is not an account login.

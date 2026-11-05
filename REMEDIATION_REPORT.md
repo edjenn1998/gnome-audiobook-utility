@@ -211,4 +211,21 @@ Current release evidence is tracked in `docs/releases/0.1.1.md`.
 The initial hosted workflow exposed an isolated setuptools import failure before
 tests ran. Loading the public packaging policy by explicit path fixes the failure;
 isolated wheel/editable builds now pass locally, with a new isolated-import
-regression check. Hosted checks will be rerun before merging.
+regression check. The corrected Ubuntu 26.04 hosted core/native lanes both pass
+([run 41969331345](https://github.com/edjenn1998/gnome-audiobook-utility/actions/runs/41969331345)).
+Ubuntu 24.04's FFprobe lacked the required secure option parser; CI now uses the
+supported baseline and initializes Xvfb before its isolated D-Bus session.
+
+The authorized 0.1.1 candidate passes actual runtime diagnostics, normal/FUSE and
+extract-and-run media/browser/public-form checks. Its bundled tools also pass
+synthetic encrypted conversion/PCM/chapters/source-integrity and explicit
+missing-license rejection. Real runtime CA addition/override/default rejection
+checks pass through HTTPX, libsoup/GnuTLS and WebKit against a local synthetic TLS
+server. No account login, license mutation or existing media was used.
+
+This closes the earlier candidate-build integration deferrals on the build host;
+the external OS/CPU/Wayland matrix and manual account/desktop/player acceptance
+remain separate. Source gate: **192 passed**, 49.20 s, lint/whitespace clean. The
+final merged-revision image and checksum are published with release 0.1.1; final
+asset evidence is included alongside its download, avoiding a self-referential
+image hash inside embedded source documentation.

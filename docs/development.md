@@ -68,9 +68,10 @@ properties, operation/exit-status reporting, log redaction and the report CLI.
 native integration lanes. Both run lint; the native lane uses a separate D-Bus
 session and Xvfb, with synthetic WebKit callbacks and fake keyrings. CI does not
 build or publish releases or log in to Audible. Only synthetic JUnit results are
-uploaded. The workflow has been added locally; hosted results require publication
-and are not claimed by local validation. Candidate AppImage/CA/clean-system matrix
-acceptance remains a separate authorized release gate; see `portability.md`.
+uploaded. Both hosted lanes passed for 0.1.1 after correcting isolated packaging
+and the FFprobe baseline; see `releases/0.1.1.md`. Candidate AppImage and CA checks
+also passed on CachyOS; clean-system matrix acceptance remains separate, as
+described in `portability.md`.
 
 The previous development host was Ubuntu/Python 3.14 without system GTK4 or FFmpeg.
 `tools/local-deps.py` downloads and extracts Ubuntu runtime packages into
