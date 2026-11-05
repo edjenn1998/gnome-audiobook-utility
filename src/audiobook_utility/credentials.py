@@ -49,3 +49,22 @@ class SecretStore:
             raise
         except Exception as exc:
             raise UtilityError("Could not remove account data from the desktop keyring.") from exc
+
+    def delete(self, key: str):
+        try:
+            for item in self._collection().search_items({"application": APP_ID, "key": key}):
+                item.delete()
+        except UtilityError:
+            raise
+        except Exception as exc:
+            raise UtilityError("Could not remove the selected item from the desktop keyring.") from exc
+
+    def clear_media(self):
+        try:
+            for item in self._collection().search_items({"application": APP_ID}):
+                if item.get_attributes().get("key", "").startswith("media:"):
+                    item.delete()
+        except UtilityError:
+            raise
+        except Exception as exc:
+            raise UtilityError("Some media licenses could not be removed. Retry explicit license deletion.") from exc

@@ -29,8 +29,46 @@ Implementation and per-finding evidence will be recorded below as each phase pas
 
 | Findings | Status |
 | --- | --- |
-| H01–H04 | Confirmed; implementation pending |
+| H01–H04 | Fixed and Phase 1 validated (details below) |
 | M01–M14 | Confirmed/static or conditional as identified in review; pending |
 | L01–L06 | Confirmed/static as identified in review; pending |
 
 No fixes are represented as complete until their regression checks and phase gate pass.
+
+## Phase 1 — high-severity findings
+
+- **H01 (reproduced):** ISO-BMFF Audible brands now take precedence over filename
+  suffixes; renamed protected inputs resolve the existing receipt/license path.
+  Conversion rejects protected inputs without options and fully decodes every
+  converted output before atomic publication. Private memfd/pass_fds transport is
+  retained. Tests cover misleading `.m4b/.m4a/.mp3/.bin/.aax` and absent licenses.
+- **H02 (reproduced):** Added non-secret, durable started/ready journals with
+  per-transaction activity locks. The ready fingerprint/license reference is saved
+  before file publication. Receipt-commit failures retain a resolvable journal;
+  idempotent recovery commits completed files or deletes only this transaction's
+  owned orphan key, never user files or earlier license items. Late cancellation
+  after publication preserves the completed operation. Fault tests cover journal
+  ENOSPC, receipt ENOSPC, canceled transfer, interrupted ready/started states,
+  repeated recovery and active-transaction exclusion.
+- **H03 (confirmed):** Introduced explicit `PACKAGING_FILES.txt` plus shared
+  `package_sources.py` policy for runtime modules, embedded source and setuptools
+  sdist/build_py hooks. Git-backed builds require approved tracked files; archive
+  builds retain the same manifest. Escaping symlinks and private file types fail.
+  Synthetic packaging tests exclude ignored/untracked sentinels; no actual release
+  or AppImage was built.
+- **H04 (confirmed):** Normal sign-out deletes only auth; explicit media forgetting
+  preserves the session, requires a native destructive confirmation, and explains
+  loss of conversion capability. Fake-collection and native cancel/confirm tests
+  verify media/other-application preservation.
+- Shared transaction prerequisites also address **M05** (strict validation,
+  corruption rejection, last-valid backup and sidecar-locked updates) and **L01**
+  (parent-directory fsync). Additional dedicated checks follow in their phases.
+- Changed application files: `media.py`, `files.py`, `receipts.py`,
+  `audible_service.py`, `download.py`, `credentials.py`, `ui.py`; packaging policy,
+  setuptools hooks, builder, public manifest and high-severity regression tests.
+- New regression cases initially failed against the baseline; targeted set now
+  **21 passed**. Final Phase 1 gate: **138 passed**, 41.33 s; Ruff/whitespace passed.
+- One initial gate aborted inside WebKit when the test runtime socket path was too
+  long. Short, private runtime directories under Projects resolved that test
+  environment failure; the complete login tests and full gate then passed. No
+  WebKit security setting or production login protocol was weakened.

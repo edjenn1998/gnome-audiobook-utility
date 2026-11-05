@@ -25,7 +25,7 @@ def content_length(response):
 
 
 def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_: None,
-             client: httpx.Client | None = None):
+             client: httpx.Client | None = None, before_publish=lambda *_: None):
     if httpx.URL(url).scheme != "https":
         raise UtilityError("The download service supplied an insecure URL.")
     own_client = client is None
@@ -106,6 +106,9 @@ def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_
                         raise UtilityError("Download interrupted. Check your connection and retry.") from None
                     if cancel.wait(2 ** attempt):
                         raise Cancelled("Download canceled.")
+            before_publish(temporary)
+            if cancel.is_set():
+                raise Cancelled("Download canceled before publication.")
         progress(1, "Download verified")
         return target
     finally:

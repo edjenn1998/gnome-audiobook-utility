@@ -31,6 +31,14 @@ BINARIES = {f"python{sys.version_info.major}.{sys.version_info.minor}", "python3
 COPIED = set()
 
 
+def approved_sources():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("package_sources", ROOT / "package_sources.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def run(*args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
 
@@ -126,8 +134,7 @@ def python_packages():
                 if target.exists() or target.is_symlink():
                     target.unlink()
                 shutil.copy2(source, target, follow_symlinks=True)
-    shutil.copytree(ROOT / "src/audiobook_utility", site / "audiobook_utility",
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"), dirs_exist_ok=True)
+    approved_sources().copy_sources(ROOT, site / "audiobook_utility", prefix="src/audiobook_utility")
     return versions
 
 
@@ -207,12 +214,8 @@ def configuration():
     for name in ("LICENSE", "THIRD_PARTY.md", "README.md", "requirements.lock"):
         shutil.copy2(ROOT / name, resource / name)
     source = resource / "source"
-    for name in ("src", "data", "docs", "tests", "tools"):
-        shutil.copytree(ROOT / name, source / name,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info"), dirs_exist_ok=True)
-    for name in ("pyproject.toml", "meson.build", "meson.options", "MANIFEST.in", "requirements.lock",
-                 "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "AGENTS.md", "MIGRATION.md", "OPENCODE_HANDOFF.md"):
-        shutil.copy2(ROOT / name, source / name)
+    approved_sources().copy_sources(ROOT, source)
+    approved_sources().write_inventory(ROOT, resource / "source-inventory.json")
     desktop = ROOT / "data" / f"{APP_ID}.desktop"
     shutil.copy2(desktop, APPDIR / desktop.name)
     applications = APPDIR / "usr/share/applications"
@@ -311,6 +314,7 @@ def main():
     WORK.mkdir(parents=True, exist_ok=True)
     (ROOT / "dist/tmp").mkdir(exist_ok=True)
     if not args.package_only:
+        approved_sources().source_files(ROOT)  # Validate before touching staging.
         if APPDIR.exists():
             if not (APPDIR / ".audiobook-appdir").is_file():
                 raise RuntimeError("Refusing to replace an unrecognized AppDir")

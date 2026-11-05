@@ -24,6 +24,14 @@ class MemoryStore:
     def clear(self):
         self.data.clear()
 
+    def delete(self, key):
+        self.data.pop(key, None)
+
+    def clear_media(self):
+        for key in list(self.data):
+            if key.startswith("media:"):
+                self.delete(key)
+
 
 @pytest.fixture
 def store():
@@ -184,7 +192,7 @@ def test_unprotected_download_does_not_require_aaxc_voucher(store, audio, tmp_pa
     with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(
             200, content=body, headers={"content-type": "audio/mpeg", "content-length": str(len(body))}))) as http:
         monkeypatch.setattr(audible_service, "download",
-            lambda url, target, cancel, progress: download(url, target, cancel, progress, client=http))
+            lambda url, target, cancel, progress, **kw: download(url, target, cancel, progress, client=http, **kw))
         output = service.download_book(Book.parse(item(1)), tmp_path, threading.Event())
     assert output.suffix == ".mp3" and output.read_bytes() == body
     assert output.name == "Book 1.mp3"

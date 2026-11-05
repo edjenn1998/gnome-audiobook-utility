@@ -169,7 +169,9 @@ does not establish complete-book playback. See docs/audible-integration.md.
   account activation and FFmpeg permit it. AAXC conversion needs the download
   receipt and keyring license; moved/renamed files are matched by SHA-256. Old
   files without receipts can use their original trailing `[ASIN]` filename and
-  legacy keyring license. Disconnect removes saved media licenses too.
+   legacy keyring license. Normal Disconnect removes authentication only; download
+   licenses stay in the keyring. **Forget Licenses…** is a separate confirmed,
+   destructive action that can make existing protected files unconvertible.
 - Merging normalizes to 48 kHz stereo PCM and encodes once; it does not currently
   offer a lossless compressed-stream concat path. Temporary space is roughly
   192 KB per second of audio, plus the encoded output and one decoded track.

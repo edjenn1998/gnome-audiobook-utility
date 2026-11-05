@@ -1,10 +1,2 @@
-include LICENSE THIRD_PARTY.md README.md CHANGELOG.md meson.build meson.options
-include requirements.lock
-include MIGRATION.md OPENCODE_HANDOFF.md
-include AGENTS.md
-recursive-include data *
-recursive-include docs *.md
-recursive-include docs *.png
-recursive-include tests *.py
-recursive-include tools *
-global-exclude __pycache__ *.py[cod]
+# setup.py selects exactly PACKAGING_FILES.txt through package_sources.py.
+# Do not add recursive filesystem globs here: Git-ignored files are private.

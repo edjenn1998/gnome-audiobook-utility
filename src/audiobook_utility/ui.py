@@ -360,17 +360,17 @@ class Window(Adw.ApplicationWindow):
                     raise Cancelled("Import canceled.")
                 progress(0, "Resolving input license and inspecting audio")
                 options = self.service.input_options(path, cancel)
-                result.append((path, probe(path, options)))
+                result.append((path, probe(path, options), bool(options)))
             return result
         def done(items):
-            for path, info in items:
+            for path, info, licensed in items:
                 if path in self.convert_paths:
                     continue
                 self.convert_paths.append(path)
                 text = (
                     f"{info.codec} · {info.duration / 60:.1f} min · {info.bitrate // 1000} kb/s · "
                     f"{info.sample_rate} Hz · {info.channels} channel(s) · {info.size / 1048576:.1f} MiB · {len(info.chapters)} chapters")
-                if path.suffix.lower() in {".aax", ".aaxc"}:
+                if licensed:
                     text += " · Audible license loaded"
                 row = Adw.ActionRow(title=path.name, subtitle=text)
                 self.convert_list.append(row)
@@ -542,7 +542,10 @@ class Window(Adw.ApplicationWindow):
         account_actions.append(button("Login to Audible", self.connect_audible))
         account_actions.append(button("Disconnect", lambda: self.work("Disconnecting", lambda *_: self.service.disconnect(), self.disconnected)))
         actions.append(account_actions)
-        actions.append(button("Refresh Library", self.refresh_library))
+        library_actions = Gtk.Box(spacing=6)
+        library_actions.append(button("Refresh Library", self.refresh_library))
+        library_actions.append(button("Forget Licenses…", self.confirm_forget_licenses))
+        actions.append(library_actions)
         header.append(actions)
         self.search = Gtk.SearchEntry(placeholder_text="Search title or author")
         self.search.connect("search-changed", lambda *_: self.render_books())
@@ -611,8 +614,25 @@ class Window(Adw.ApplicationWindow):
         self.books = []
         self.book_checks.clear()
         clear(self.book_list)
-        self.account_label.set_text("Disconnected · Saved session and media licenses removed from keyring")
+        self.account_label.set_text("Disconnected · Download licenses kept securely for local conversion")
         self.update_library_actions()
+
+    def confirm_forget_licenses(self):
+        if self.busy:
+            return
+        dialog = Adw.AlertDialog(heading="Permanently forget download licenses?",
+            body="Existing protected audiobooks may no longer be convertible. Some titles may not be downloadable again. Ordinary Disconnect keeps these licenses.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("forget", "Permanently Forget Licenses")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("forget", Adw.ResponseAppearance.DESTRUCTIVE)
+        def response(_, choice):
+            if choice == "forget":
+                self.work("Forgetting download licenses", lambda *_: self.service.forget_media_licenses())
+        dialog.connect("response", response)
+        self.forget_dialog = dialog
+        dialog.present(self)
 
     def library_loaded(self, books):
         self.books = books

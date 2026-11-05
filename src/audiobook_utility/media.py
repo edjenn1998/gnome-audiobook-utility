@@ -19,6 +19,29 @@ Progress = Callable[[float, str], None]
 PROTECTED_OPTIONS = {"-activation_bytes": 8, "-audible_key": 32, "-audible_iv": 32}
 
 
+def protected_format(path: Path) -> str | None:
+    """Identify Audible ISO-BMFF brands before trusting a filename's suffix."""
+    path = path.expanduser().resolve(strict=True)
+    with path.open("rb") as stream:
+        header = stream.read(4096)
+    offset = 0
+    while offset + 8 <= len(header):
+        size = int.from_bytes(header[offset:offset + 4], "big")
+        kind = header[offset + 4:offset + 8]
+        if size < 8 or size > len(header) - offset:
+            break
+        if kind == b"ftyp" and size >= 16:
+            brands = [header[offset + 8:offset + 12]]
+            brands += [header[i:i + 4] for i in range(offset + 16, offset + size, 4)]
+            if b"aaxc" in brands:
+                return "aaxc"
+            if b"aax " in brands:
+                return "aax"
+        offset += size
+    # Legacy/corrupt named Audible inputs still require an explicit license.
+    return path.suffix.lower()[1:] if path.suffix.lower() in {".aax", ".aaxc"} else None
+
+
 class PrivatePath(str):
     """A child-local memfd path retaining the descriptor to inherit at exec."""
 
@@ -230,6 +253,8 @@ def verify(path: Path, duration: float, chapters: list[tuple[str, float, float]]
 def convert(source: Path, target: Path, cancel: threading.Event,
             progress: Progress = lambda *_: None, bitrate: int = 96,
             input_options: list[str] | None = None):
+    if protected_format(source) and not any(option in (input_options or []) for option in PROTECTED_OPTIONS):
+        raise UtilityError("Protected Audible input requires its saved account media license before conversion.")
     info = probe(source, input_options)
     if target.suffix.lower() not in {".mp3", ".m4b"}:
         raise UtilityError("Select an M4B or MP3 output.")
@@ -268,7 +293,8 @@ def convert(source: Path, target: Path, cancel: threading.Event,
             args += ["-movflags", "+faststart", "-f", "mp4"]
         else:
             args += ["-id3v2_version", "3"]
-        encode_progress = (lambda p, s: progress(p * 0.8, s)) if protected else progress
+        def encode_progress(p, text):
+            progress(p * 0.8, text)
         run_ffmpeg([*args, str(temporary)], info.duration, cancel, encode_progress,
                    operation="ffmpeg.convert")
         verify(temporary, info.duration, expected_chapters)
@@ -280,11 +306,10 @@ def convert(source: Path, target: Path, cancel: threading.Event,
             tags, artwork = {}, None
         write_tags(temporary, tags, artwork)
         verify(temporary, info.duration, expected_chapters)
-        if protected:
-            run_ffmpeg(["-i", str(temporary), "-map", "0:a:0", "-f", "null", "-"],
-                       info.duration, cancel,
-                       lambda p, _: progress(0.8 + p * 0.19, "Verifying decoded audiobook"),
-                       operation="ffmpeg.verify_audio")
+        run_ffmpeg(["-i", str(temporary), "-map", "0:a:0", "-f", "null", "-"],
+                   info.duration, cancel,
+                   lambda p, _: progress(0.8 + p * 0.19, "Verifying decoded audiobook"),
+                   operation="ffmpeg.verify_audio")
         if cancel.is_set():
             raise Cancelled("Conversion canceled.")
     progress(1, "Conversion complete")

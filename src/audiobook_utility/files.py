@@ -37,6 +37,14 @@ def destination(folder: Path, title: str, suffix: str, conflict: str = "rename")
     return candidate
 
 
+def sync_directory(path: Path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 @contextmanager
 def staging(target: Path, replace: bool = False):
     """Publish only verified complete files; hard links implement atomic no-clobber."""
@@ -55,3 +63,4 @@ def staging(target: Path, replace: bool = False):
             os.link(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
+        sync_directory(target.parent)
