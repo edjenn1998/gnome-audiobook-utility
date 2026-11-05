@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from . import APP_ID
+from . import APP_ID, __version__
 from .audible_service import AudibleService
 from .diagnostics import record_exception
 from .files import Cancelled, UtilityError, destination, natural_key
@@ -938,7 +938,7 @@ class Window(Adw.ApplicationWindow):
 
     def about(self):
         dialog = Adw.AboutDialog(application_name="Audiobook Utility",
-            application_icon=APP_ID, version="0.1.0", license_type=Gtk.License.AGPL_3_0_ONLY,
+            application_icon=APP_ID, version=__version__, license_type=Gtk.License.AGPL_3_0_ONLY,
             comments="Convert, merge and tag audiobooks. Free software under the GNU AGPL version 3; no warranty.")
         dialog.add_legal_section("Third-party components", None, Gtk.License.CUSTOM,
             "Uses audible (AGPLv3), Mutagen (GPLv2 or later), GTK/Libadwaita/PyGObject (LGPL), WebKitGTK/libsoup, FFmpeg, Pillow, HTTPX and SecretStorage. See THIRD_PARTY.md in the source distribution for attribution and license obligations.")

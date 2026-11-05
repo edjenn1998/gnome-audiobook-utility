@@ -5,13 +5,13 @@
 The executable is created at:
 
 ```text
-dist/Audiobook_Utility-0.1.0-x86_64.AppImage
+dist/Audiobook_Utility-0.1.1-x86_64.AppImage
 ```
 
 Download the AppImage and checksum from
 [GitHub Releases](https://github.com/edjenn1998/gnome-audiobook-utility/releases/latest).
 Local builds are already executable; downloaded files may require
-`chmod +x Audiobook_Utility-0.1.0-x86_64.AppImage`. Close any running development copy, then double-click
+`chmod +x Audiobook_Utility-0.1.1-x86_64.AppImage`. Close any running development copy, then double-click
 the AppImage or run it directly. It can be moved to another folder; the project
 checkout and `.venv` are not required to run it. Existing XDG preferences,
 download receipts and desktop keyring credentials retain their normal locations.
@@ -21,7 +21,7 @@ The matching `.AppImage.sha256` file contains the artifact's SHA-256 checksum.
 If FUSE mounting is unavailable, the runtime also supports:
 
 ```sh
-./Audiobook_Utility-0.1.0-x86_64.AppImage --appimage-extract-and-run
+./Audiobook_Utility-0.1.1-x86_64.AppImage --appimage-extract-and-run
 ```
 
 ## Bundled runtime
@@ -99,8 +99,8 @@ configured; download new versions from the repository's Releases page.
 ## Verification
 
 ```sh
-./dist/Audiobook_Utility-0.1.0-x86_64.AppImage --self-test
-./dist/Audiobook_Utility-0.1.0-x86_64.AppImage --self-test --network
+./dist/Audiobook_Utility-0.1.1-x86_64.AppImage --self-test
+./dist/Audiobook_Utility-0.1.1-x86_64.AppImage --self-test --network
 ```
 
 These checks generate public test tones, convert/merge/tag/decode them, load cover

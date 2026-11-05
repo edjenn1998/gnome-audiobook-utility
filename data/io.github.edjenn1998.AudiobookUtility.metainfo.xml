@@ -20,5 +20,8 @@
   <requires><display_length compare="ge">360</display_length></requires>
   <recommends><control>pointing</control><control>keyboard</control></recommends>
   <supports><control>touch</control></supports>
-  <releases><release version="0.1.0" date="2026-11-02"><description><p>First public release with native audiobook workflows, automatic Audible sign-in, protected conversion and a self-contained AppImage.</p></description></release></releases>
+  <releases>
+    <release version="0.1.1" date="2026-11-04"><description><p>Improve protected-media validation, recoverable downloads, license retention, native responsiveness, metadata editing and AppImage runtime validation.</p></description></release>
+    <release version="0.1.0" date="2026-11-02"><description><p>First public release with native audiobook workflows, automatic Audible sign-in, protected conversion and a self-contained AppImage.</p></description></release>
+  </releases>
 </component>

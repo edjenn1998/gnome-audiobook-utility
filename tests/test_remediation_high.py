@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import threading
 from unittest.mock import patch
 
@@ -18,6 +19,15 @@ from audiobook_utility.media import convert
 from audiobook_utility.receipts import Receipts
 from test_audible import MemoryStore
 from test_protected_media import decoded_audio
+
+
+def test_setuptools_policy_import_works_without_checkout_on_sys_path():
+    root = Path(__file__).parents[1]
+    result = subprocess.run([sys.executable, "-I", "-B", "-c",
+                             "import runpy,sys;sys.argv=['setup.py','--name'];runpy.run_path('setup.py',run_name='__main__')"],
+                            cwd=root, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "gnome-audiobook-utility"
 
 
 @pytest.mark.parametrize("suffix", [".m4b", ".m4a", ".mp3", ".bin", ".aax"])

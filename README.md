@@ -47,11 +47,11 @@ FFmpeg build. Install matching FFmpeg and FFprobe versions.
 After downloading, mark it executable and launch it:
 
 ```sh
-chmod +x Audiobook_Utility-0.1.0-x86_64.AppImage
-./Audiobook_Utility-0.1.0-x86_64.AppImage
+chmod +x Audiobook_Utility-0.1.1-x86_64.AppImage
+./Audiobook_Utility-0.1.1-x86_64.AppImage
 ```
 
-Local builds are written to `dist/Audiobook_Utility-0.1.0-x86_64.AppImage`.
+Local builds are written to `dist/Audiobook_Utility-0.1.1-x86_64.AppImage`.
 Close the running development copy before launching it. It bundles Python,
 GTK/Adwaita, WebKit, FFmpeg and the
 required libraries/data; the source checkout and virtual environment are not

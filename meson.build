@@ -1,4 +1,4 @@
-project('gnome-audiobook-utility', version: '0.1.0', meson_version: '>=1.2', license: 'AGPL-3.0-only')
+project('gnome-audiobook-utility', version: '0.1.1', meson_version: '>=1.2', license: 'AGPL-3.0-only')
 
 python = import('python').find_installation(get_option('python'))
 run_command(python, '-c',

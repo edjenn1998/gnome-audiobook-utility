@@ -49,8 +49,8 @@ users to connect again, keeping media licenses. In the remediation source,
 Disconnect removes only the application session, retaining conversion licenses.
 Separate confirmed **Forget Licenses…** removes media keyring entries while keeping
 the session; protected files then need a new authorized download/license to convert.
-Neither action claims to revoke the remote device registration. The existing
-released AppImage predates this safer separation.
+Neither action claims to revoke the remote device registration. AppImage 0.1.1
+includes this safer separation; the historical 0.1.0 artifact does not.
 
 No credentials, cookies, activation bytes or decrypted vouchers go into settings,
 download sidecars, diagnostic logs or the repository. FFprobe reads its key/IV

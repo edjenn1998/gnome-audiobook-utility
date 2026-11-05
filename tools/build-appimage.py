@@ -11,10 +11,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / "dist/appimage"
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+WORK = ROOT / f"dist/appimage-{VERSION}"
 APPDIR = WORK / "AudiobookUtility.AppDir"
 APP_ID = "io.github.edjenn1998.AudiobookUtility"
 TOOL_URL = "https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-951-x86_64.AppImage"
@@ -385,11 +387,11 @@ def package():
     for name in list(env):
         if name.startswith("GITHUB_") or name in {"CI", "TRAVIS", "APPIMAGE"}:
             env.pop(name, None)
-    env.update(APPIMAGE_EXTRACT_AND_RUN="1", VERSION="0.1.0", ARCH="x86_64",
+    env.update(APPIMAGE_EXTRACT_AND_RUN="1", VERSION=VERSION, ARCH="x86_64",
                TMPDIR=str(ROOT / "dist/tmp"), HOME=str(WORK / "tool-home"),
                XDG_CACHE_HOME=str(WORK / "tool-cache"))
     Path(env["HOME"]).mkdir(parents=True, exist_ok=True)
-    destination = ROOT / "dist/Audiobook_Utility-0.1.0-x86_64.AppImage"
+    destination = ROOT / f"dist/Audiobook_Utility-{VERSION}-x86_64.AppImage"
     log = WORK / "appimagetool.log"
     print(f"Compressing AppImage (build log: {log})...", flush=True)
     with log.open("w") as stream:

@@ -1,13 +1,16 @@
 """Restrict setuptools runtime and sdist files to the reviewed public manifest."""
 from pathlib import Path
+import importlib.util
 
 from setuptools import setup
 from setuptools.command.build_py import build_py
 from setuptools.command.egg_info import FileList, egg_info
 
-from package_sources import source_files
-
 ROOT = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("package_sources", ROOT / "package_sources.py")
+policy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(policy)
+source_files = policy.source_files
 
 
 class ApprovedEggInfo(egg_info):

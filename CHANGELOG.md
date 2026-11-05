@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — local code-review remediation
+## 0.1.1 — 2026-11-04
 
 - Detect protected media by container brands despite misleading extensions and
   fully decode conversion/merge results before publication.
@@ -16,9 +16,10 @@
   versions/integrity, harden launcher diagnostics and add validated CA support.
 - Keep maintenance validation active under optimized Python; capture only the
   application widget. Add fresh-state checks and credential-free core/native CI.
-- Local suite: 191 passing tests. See `REMEDIATION_REPORT.md` for per-finding evidence
-  and deferred candidate AppImage/platform/manual acceptance. The existing 0.1.0
-  AppImage has not been rebuilt and does not contain these source changes.
+- Fix isolated setuptools/editable builds by loading the public-file policy from
+  its explicit source path, including when the checkout is absent from `sys.path`.
+- See `REMEDIATION_REPORT.md` and `docs/releases/0.1.1.md` for per-finding evidence,
+  packaged validation and remaining platform/manual acceptance.
 
 ## 0.1.0 — 2026-11-02
 

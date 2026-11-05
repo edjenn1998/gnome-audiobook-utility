@@ -199,3 +199,16 @@ listening, CVE-audit or long-term leak-free claim is made.
 
 The final CI/documentation phase follows these commits on
 `remediation/code-review-2026-11-04`. The branch remains local for owner review.
+
+## Release continuation — owner authorization
+
+The owner subsequently authorized GitHub publication, then explicitly authorized a
+new AppImage release, merge and publication. The phase records above describe the
+earlier source-only scope and are retained as historical evidence. The existing
+v0.1.0 artifact remains preserved; release 0.1.1 uses separate staging and filenames.
+Current release evidence is tracked in `docs/releases/0.1.1.md`.
+
+The initial hosted workflow exposed an isolated setuptools import failure before
+tests ran. Loading the public packaging policy by explicit path fixes the failure;
+isolated wheel/editable builds now pass locally, with a new isolated-import
+regression check. Hosted checks will be rerun before merging.

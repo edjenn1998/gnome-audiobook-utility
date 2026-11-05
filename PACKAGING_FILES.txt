@@ -24,6 +24,7 @@ docs/cachyos-validation.md
 docs/development.md
 docs/progress.md
 docs/portability.md
+docs/releases/0.1.1.md
 docs/screenshots/merge.png
 meson.build
 meson.options

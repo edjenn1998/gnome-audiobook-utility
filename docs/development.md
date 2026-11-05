@@ -120,7 +120,7 @@ files or `audiobook-*` PCM workspaces. Do not remove them during an active job.
 The remediation source adds non-secret started/ready download journals that recover
 receipt/license associations or clean up transaction-owned orphan keys. This is not
 persistent transfer resume; interrupted partial streams restart. The existing
-released AppImage predates these source changes.
+0.1.0 AppImage predates these source changes; 0.1.1 includes them.
 
 ## Diagnostics and manual checks
 
