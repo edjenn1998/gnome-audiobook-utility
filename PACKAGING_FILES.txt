@@ -58,6 +58,7 @@ tests/test_login.py
 tests/test_media.py
 tests/test_media_diagnostics.py
 tests/test_metadata.py
+tests/test_native_lifecycle.py
 tests/test_protected_media.py
 tests/test_reliability.py
 tests/test_remediation_high.py

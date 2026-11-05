@@ -5,7 +5,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from .files import UtilityError
 
@@ -45,6 +45,10 @@ class LoginWindow(Adw.Window):
             self.view.connect("context-menu", lambda *_: True),
         ]
         self.connect("close-request", self.close_requested)
+        controller = Gtk.EventControllerKey()
+        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        controller.connect("key-pressed", self.key_pressed)
+        self.add_controller(controller)
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -165,6 +169,12 @@ class LoginWindow(Adw.Window):
             self.finish()
             return False
         return True
+
+    def key_pressed(self, controller, key, code, state):
+        if key == Gdk.KEY_Escape:
+            self.close_requested()
+            return True
+        return False
 
     def close_requested(self, *_):
         self.request.cancel()

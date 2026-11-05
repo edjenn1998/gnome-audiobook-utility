@@ -130,3 +130,23 @@ The initial low-severity run reproduced six failures (four prerequisites were
 already green). Expanded targeted checks: **12 passed**, including a real native
 application-only PNG render. Full Phase 3 suite: **174 passed**, 48.66 s;
 Ruff passed. Synthetic archives/binaries only; no release rebuild or account use.
+
+## Phase 4 — GNOME lifecycle and ownership
+
+- Each Secret Service operation now explicitly owns and closes its D-Bus
+  connection, including acquisition and item failures. Fifteen fake-service cases
+  cover get/put/delete/account clearing/media clearing; no real keyring was opened.
+  This improves ownership; the review did not establish a preexisting FD leak.
+- A window-scoped `Gio.SimpleAction` routes Open to the current local workflow.
+  Ctrl+O on Audible no longer imports into the hidden conversion page.
+- Login's capture-phase Escape handler uses the existing cancellation/cleanup
+  path. Automatic ephemeral login and its backend remain unchanged.
+- Destroyed windows reject newly requested work and late chooser results. Terminal
+  worker status is announced on GTK versions supporting accessible announcements;
+  the GTK 4.10 baseline remains supported without that optional API.
+- Targeted lifecycle/workflow/login/protected-media/high-severity checks:
+  **77 passed**. Full phase gate: **191 passed**, 48.78 s; Ruff/whitespace passed.
+
+These focused changes preserve native layout and appearance. Full gettext/catalog
+adoption, actual screen-reader/keyboard-only acceptance, fractional scaling and a
+long-running measured heap/FD soak remain follow-up work, not claimed results.

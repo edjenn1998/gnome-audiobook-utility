@@ -204,6 +204,9 @@ class Window(Adw.ApplicationWindow):
         self.add_page(self.metadata_page(), "metadata", "Metadata", "document-edit-symbolic")
         self.stack.set_visible_child_name("convert")
         self.connect("close-request", self.close_requested)
+        open_action = Gio.SimpleAction.new("open", None)
+        open_action.connect("activate", lambda *_: self.open_current())
+        self.add_action(open_action)
         controller = Gtk.EventControllerKey()
         controller.connect("key-pressed", self.key_pressed)
         self.add_controller(controller)
@@ -219,13 +222,26 @@ class Window(Adw.ApplicationWindow):
             self.cancel.set()
             return True
         if key == Gdk.KEY_o and state & Gdk.ModifierType.CONTROL_MASK:
-            page = self.stack.get_visible_child_name()
-            if page == "metadata":
-                self.choose(lambda paths: self.open_metadata(paths[0]))
-            else:
-                self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
+            if self.stack.get_visible_child_name() == "audible":
+                return False
+            self.activate_action("win.open", None)
             return True
         return False
+
+    def open_current(self):
+        page = self.stack.get_visible_child_name()
+        if self.busy or self._closing:
+            return
+        if page == "metadata":
+            self.choose(lambda paths: self.open_metadata(paths[0]))
+        elif page in {"merge", "convert"}:
+            self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
+
+    def announce_status(self):
+        # GTK 4.10 remains supported; announcements were added in GTK 4.14.
+        announce = getattr(self.status, "announce", None)
+        if announce:
+            announce(self.status.get_text(), Gtk.AccessibleAnnouncementPriority.MEDIUM)
 
     def adaptive_actions(self):
         box = Gtk.Box(spacing=6)
@@ -321,7 +337,7 @@ class Window(Adw.ApplicationWindow):
         return False
 
     def choose(self, callback, multiple=False, folder=False, images=False):
-        if self.busy:
+        if self.busy or self._closing:
             return
         dialog = Gtk.FileDialog(title="Choose Folder" if folder else "Choose Cover" if images else "Import Audio")
         if images:
@@ -339,6 +355,8 @@ class Window(Adw.ApplicationWindow):
                     files = list(obj.open_multiple_finish(result))
                 else:
                     files = [obj.open_finish(result)]
+                if self._closing:
+                    return
                 paths = [Path(f.get_path()) for f in files if f.get_path()]
                 if paths:
                     callback(paths)
@@ -363,6 +381,8 @@ class Window(Adw.ApplicationWindow):
         widget.add_controller(target)
 
     def work(self, title, operation, done=lambda *_: None):
+        if self._closing:
+            return
         if self.busy:
             self.error("Wait for the current operation to finish or cancel it first.")
             return
@@ -412,6 +432,7 @@ class Window(Adw.ApplicationWindow):
                         record_exception(exc)
                         self.error("The operation finished, but its result could not be displayed. Check the output file and artwork format.")
                 self.update_library_actions()
+                self.announce_status()
             GLib.idle_add(finish)
         threading.Thread(target=worker, daemon=False).start()
 

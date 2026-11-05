@@ -186,7 +186,8 @@ def test_secret_store_delete_scope_does_not_touch_other_application(monkeypatch)
             return [Item(name) for name in list(data)
                     if all(Item(name).get_attributes().get(k) == v for k, v in attrs.items())]
     store = SecretStore()
-    monkeypatch.setattr(store, "_collection", lambda: Collection())
+    from contextlib import nullcontext
+    monkeypatch.setattr(store, "_collection", lambda: nullcontext(Collection()))
     store.delete("auth")
     assert set(data) == {"media", "other"}
     store.clear_media()

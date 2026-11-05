@@ -59,7 +59,8 @@ def secure_store(monkeypatch):
                     if all(attrs.get(k) == v for k, v in attributes.items())]
     collection = Collection()
     store = SecretStore()
-    monkeypatch.setattr(store, "_collection", lambda: collection)
+    from contextlib import nullcontext
+    monkeypatch.setattr(store, "_collection", lambda: nullcontext(collection))
     return store
 
 
