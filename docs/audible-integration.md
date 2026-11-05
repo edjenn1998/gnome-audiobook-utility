@@ -45,9 +45,12 @@ edge cases still require interactive testing where applicable.
 
 The upstream authenticator refreshes tokens as needed; refreshed authentication
 is persisted after successful API operations. Unauthorized responses instruct
-users to connect again, keeping media licenses. Disconnect removes application session and media
-license keyring entries; it does not claim to revoke the remote device registration.
-Do not disconnect before converting a protected file whose license you need.
+users to connect again, keeping media licenses. In the remediation source,
+Disconnect removes only the application session, retaining conversion licenses.
+Separate confirmed **Forget Licenses…** removes media keyring entries while keeping
+the session; protected files then need a new authorized download/license to convert.
+Neither action claims to revoke the remote device registration. AppImage 0.1.1
+includes this safer separation; the historical 0.1.0 artifact does not.
 
 No credentials, cookies, activation bytes or decrypted vouchers go into settings,
 download sidecars, diagnostic logs or the repository. FFprobe reads its key/IV
@@ -267,12 +270,14 @@ a fresh authorized download with its own receipt/license is needed.
   with response metadata and check unavailable/multipart behavior.
 - Convert eligible AAX/AAXC using the system FFmpeg and verify complete duration,
   chapters, metadata and cover with legally obtained source media.
-- Disconnect and verify all application secrets are removed; confirm other
-  applications' keyring items are untouched.
+- In a disposable account/test keyring, verify Disconnect retains media licenses,
+  canceled Forget Licenses retains everything, and confirmed forgetting preserves
+  authentication and other applications' items. Never purge an owner's real
+  conversion licenses merely to exercise this check.
 
-Basic sign-in, library retrieval and AAXC download are user-reported working;
-the additional cases above and purchased-book conversion remain pending.
-Automated account tests use only safe fixtures.
+Basic sign-in, library retrieval, AAXC downloads and purchased-book conversion have
+owner/native evidence recorded in `cachyos-validation.md`; the unrecorded edge
+cases above remain acceptance work. Remediation tests use only safe fixtures.
 Audible's service terms, regional availability and applicable laws concerning
 technical protection measures apply independently of this software's open-source
 license. The application makes no legal determination about a user's jurisdiction.

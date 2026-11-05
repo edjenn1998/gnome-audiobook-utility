@@ -5,13 +5,13 @@
 The executable is created at:
 
 ```text
-dist/Audiobook_Utility-0.1.0-x86_64.AppImage
+dist/Audiobook_Utility-0.1.1-x86_64.AppImage
 ```
 
 Download the AppImage and checksum from
 [GitHub Releases](https://github.com/edjenn1998/gnome-audiobook-utility/releases/latest).
 Local builds are already executable; downloaded files may require
-`chmod +x Audiobook_Utility-0.1.0-x86_64.AppImage`. Close any running development copy, then double-click
+`chmod +x Audiobook_Utility-0.1.1-x86_64.AppImage`. Close any running development copy, then double-click
 the AppImage or run it directly. It can be moved to another folder; the project
 checkout and `.venv` are not required to run it. Existing XDG preferences,
 download receipts and desktop keyring credentials retain their normal locations.
@@ -21,7 +21,7 @@ The matching `.AppImage.sha256` file contains the artifact's SHA-256 checksum.
 If FUSE mounting is unavailable, the runtime also supports:
 
 ```sh
-./Audiobook_Utility-0.1.0-x86_64.AppImage --appimage-extract-and-run
+./Audiobook_Utility-0.1.1-x86_64.AppImage --appimage-extract-and-run
 ```
 
 ## Bundled runtime
@@ -82,6 +82,7 @@ and GI typelibs, compiles schemas/module caches, builds a static launcher, inclu
 source/notices, and creates the AppImage. It never installs system packages. It
 downloads a checksum-pinned `go-appimage` build tool into `dist/appimage-tools/`.
 Build work, tool extraction/caches, AppDir, manifest and artifacts remain in `dist/`.
+Version-specific staging uses `dist/appimage-0.1.1/`, preserving older release work.
 The native package set and exact installed versions are recorded, so runtime
 changes are visible rather than silently assumed to be bit-for-bit reproducible.
 
@@ -99,15 +100,16 @@ configured; download new versions from the repository's Releases page.
 ## Verification
 
 ```sh
-./dist/Audiobook_Utility-0.1.0-x86_64.AppImage --self-test
-./dist/Audiobook_Utility-0.1.0-x86_64.AppImage --self-test --network
+./dist/Audiobook_Utility-0.1.1-x86_64.AppImage --self-test
+./dist/Audiobook_Utility-0.1.1-x86_64.AppImage --self-test --network
 ```
 
 These checks generate public test tones, convert/merge/tag/decode them, load cover
 art, start the real native interface, and exercise automatic callback capture in
 the bundled ephemeral WebKit browser. The network option additionally verifies
 HTTPS/DNS/certificate loading and the public Amazon sign-in form without entering
-credentials or registering an account. Runtime assertions check that Python and
+credentials or registering an account. Explicit runtime checks (also active under
+optimized Python) check that Python and
 application imports come from the private `/usr`.
 
 During development, set `TMPDIR`, the XDG config/data/cache/state paths and
@@ -116,6 +118,6 @@ for display/keyring checks. Tests here use `GDK_BACKEND=x11` for allocated nativ
 windows through GNOME/Xwayland; the application itself does not force that backend.
 
 The final verification report is stored with build artifacts under `dist/` and
-the latest session results are recorded in `docs/progress.md`. Full interactive
+the latest release results are recorded in `docs/releases/0.1.1.md`. Full interactive
 account reauthentication from the packaged browser remains an owner check unless
 explicitly recorded as tested; public form loading is not an account login.

@@ -29,7 +29,8 @@
   lookup. Preserve compatibility with older bracketed filenames.
 - Keep download and conversion separate. Preserve the working authentication
   backend and original media. Do not disconnect the actual account during tests:
-  disconnect also removes the saved media licenses.
+  use only fake keyrings in tests. Ordinary logout now retains media licenses;
+  explicit confirmed license forgetting is destructive.
 - Automatic login now uses a dedicated ephemeral WebKitGTK 6 window through the
   existing upstream browser callback. Read `docs/authentication-ui.md`. Never
   inspect password fields, log complete callbacks/cookies, or replace the backend

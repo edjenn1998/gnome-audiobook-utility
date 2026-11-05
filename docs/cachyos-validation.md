@@ -1,5 +1,15 @@
 # CachyOS validation — 2026-11-02
 
+## Current release continuation — 0.1.1
+
+The source-remediation gate is now **192 passing tests** with lint/whitespace clean.
+Hosted Ubuntu 26.04 core/native lanes pass. The new authorized 0.1.1 AppImage
+candidate passes normal and extract-and-run media/browser/public-HTTPS checks,
+synthetic protected conversion and real runtime CA integration on CachyOS.
+See [0.1.1 release evidence](releases/0.1.1.md) and `REMEDIATION_REPORT.md` for
+current scope. The older dated account and release observations below are retained
+as history; no live account workflow was rerun for remediation/release preparation.
+
 This is the current continuation record. Earlier handoff notes describing
 purchased-book conversion as blocked are historical.
 

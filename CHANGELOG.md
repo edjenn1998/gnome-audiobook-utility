@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.1 — 2026-11-04
+
+- Detect protected media by container brands despite misleading extensions and
+  fully decode conversion/merge results before publication.
+- Recover download receipt/license commits with durable non-secret journals;
+  reject corrupt receipts and serialize updates without replacing earlier licenses.
+- Retain media licenses on Disconnect; provide separate confirmed Forget Licenses.
+- Validate every transfer redirect, bound retries/deadlines and cover-cache growth,
+  tolerate nullable library metadata and display external text literally.
+- Fix ADTS-first merging, explicit cover removal and temporary-path normalization.
+- Coalesce progress, recycle library rows and prepare previews off the GTK thread.
+  Prompt before discarding metadata edits and improve keyboard/lifecycle handling.
+- Restrict packaged sources to an approved tracked manifest; verify dependency
+  versions/integrity, harden launcher diagnostics and add validated CA support.
+- Keep maintenance validation active under optimized Python; capture only the
+  application widget. Add fresh-state checks and credential-free core/native CI.
+- Fix isolated setuptools/editable builds by loading the public-file policy from
+  its explicit source path, including when the checkout is absent from `sys.path`.
+- See `REMEDIATION_REPORT.md` and `docs/releases/0.1.1.md` for per-finding evidence,
+  packaged validation and remaining platform/manual acceptance.
+
 ## 0.1.0 — 2026-11-02
 
 First public GitHub release, including the self-contained x86_64 AppImage.

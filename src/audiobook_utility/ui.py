@@ -1,18 +1,21 @@
 import threading
+from concurrent.futures import ThreadPoolExecutor
+import weakref
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from . import APP_ID
+from . import APP_ID, __version__
 from .audible_service import AudibleService
 from .diagnostics import record_exception
 from .files import Cancelled, UtilityError, destination, natural_key
 from .media import convert, dependencies, merge, probe
-from .metadata import FIELDS, edit, read_tags, validate_artwork
+from .metadata import FIELDS, edit, prepare_preview, read_tags, validate_artwork
+from .progress import ProgressDispatch
 from .settings import Settings
 from .thumbnails import thumbnail
 
@@ -49,11 +52,19 @@ class SummaryEditor(Gtk.TextView):
         return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
 
+class LibraryItem(GObject.Object):
+    def __init__(self, book):
+        super().__init__()
+        self.book = book
+
+
 class TagForm(Gtk.Box):
     def __init__(self, window):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.window = window
         self.artwork = None
+        self._art_generation = 0
+        self._preview_future = None
         self.entries = {}
         group = Adw.PreferencesGroup(title="Audiobook metadata")
         labels = {"artist": "Author / Artist", "date": "Publication date", "description": "Description / Summary"}
@@ -79,29 +90,46 @@ class TagForm(Gtk.Box):
         actions.append(button("Choose Cover…", self.choose_cover))
         actions.append(button("Remove Cover", lambda: self.set_art(None)))
         self.append(actions)
+        self.mark_clean()
+
+    def mark_clean(self):
+        self._saved_values = self.values()
+        self._saved_artwork = self.artwork
+
+    @property
+    def dirty(self):
+        return self.values() != self._saved_values or self.artwork != self._saved_artwork
 
     def choose_cover(self):
         self.window.choose(lambda paths: self.import_cover(paths[0]), images=True)
 
     def import_cover(self, path):
-        def loaded(data):
-            self.set_art(data)
+        def loaded(result):
+            self.set_art(result[0], result[1])
         def operation(*_):
             if path.stat().st_size > 20 * 1024 * 1024:
                 raise UtilityError("Cover images must be no larger than 20 MiB.")
-            return validate_artwork(path.read_bytes())[0]
+            data = validate_artwork(path.read_bytes())[0]
+            return data, prepare_preview(data)
         self.window.work("Loading cover", operation, loaded)
 
-    def set_art(self, data):
-        if data:
-            validate_artwork(data)
+    def set_art(self, data, preview=None):
+        self._art_generation += 1
+        if self._preview_future:
+            self._preview_future.cancel()
         self.artwork = data
-        self.picture.set_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(data)) if data else None)
+        self.picture.set_paintable(None)
+        if data:
+            if preview is not None:
+                self.picture.set_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(preview)))
+            else:
+                self.window.submit_preview(self, data, self._art_generation)
 
-    def fill(self, values, art):
+    def fill(self, values, art, preview=None):
         for field, entry in self.entries.items():
             entry.set_text(values.get(field, ""))
-        self.set_art(art)
+        self.set_art(art, preview)
+        self.mark_clean()
 
     def values(self):
         return {field: entry.get_text() for field, entry in self.entries.items()}
@@ -118,9 +146,15 @@ class Window(Adw.ApplicationWindow):
         self.tracks = []
         self.convert_paths = []
         self.metadata_path = None
+        self.metadata_guard = None
         self.books = []
         self.book_checks = {}
         self.login_window = None
+        self._closing = False
+        self._operation_id = 0
+        self._preview_pool = None
+        self._library_widgets_created = 0
+        self.connect("unrealize", self.cleanup_resources)
         self.service = AudibleService()
         try:
             self.settings = Settings.load()
@@ -170,6 +204,9 @@ class Window(Adw.ApplicationWindow):
         self.add_page(self.metadata_page(), "metadata", "Metadata", "document-edit-symbolic")
         self.stack.set_visible_child_name("convert")
         self.connect("close-request", self.close_requested)
+        open_action = Gio.SimpleAction.new("open", None)
+        open_action.connect("activate", lambda *_: self.open_current())
+        self.add_action(open_action)
         controller = Gtk.EventControllerKey()
         controller.connect("key-pressed", self.key_pressed)
         self.add_controller(controller)
@@ -185,25 +222,102 @@ class Window(Adw.ApplicationWindow):
             self.cancel.set()
             return True
         if key == Gdk.KEY_o and state & Gdk.ModifierType.CONTROL_MASK:
-            page = self.stack.get_visible_child_name()
-            if page == "metadata":
-                self.choose(lambda paths: self.open_metadata(paths[0]))
-            else:
-                self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
+            if self.stack.get_visible_child_name() == "audible":
+                return False
+            self.activate_action("win.open", None)
             return True
         return False
+
+    def open_current(self):
+        page = self.stack.get_visible_child_name()
+        if self.busy or self._closing:
+            return
+        if page == "metadata":
+            self.choose(lambda paths: self.open_metadata(paths[0]))
+        elif page in {"merge", "convert"}:
+            self.choose(self.import_merge if page == "merge" else self.import_convert, multiple=True)
+
+    def announce_status(self):
+        # GTK 4.10 remains supported; announcements were added in GTK 4.14.
+        announce = getattr(self.status, "announce", None)
+        if announce:
+            announce(self.status.get_text(), Gtk.AccessibleAnnouncementPriority.MEDIUM)
 
     def adaptive_actions(self):
         box = Gtk.Box(spacing=6)
         self.compact_breakpoint.add_setter(box, "orientation", Gtk.Orientation.VERTICAL)
         return box
 
+    def submit_preview(self, form, data, generation):
+        if self._closing:
+            return
+        if self._preview_pool is None:
+            self._preview_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cover-preview")
+        window_ref, form_ref = weakref.ref(self), weakref.ref(form)
+        future = self._preview_pool.submit(prepare_preview, data)
+        form._preview_future = future
+        def completed(task):
+            if task.cancelled():
+                return
+            try:
+                preview, failure = task.result(), None
+            except Exception as error:
+                preview, failure = None, error
+            def apply():
+                window, target = window_ref(), form_ref()
+                if window is None or target is None or window._closing or target._art_generation != generation:
+                    return False
+                if failure:
+                    record_exception(failure)
+                    window.error("The cover preview could not be prepared. Choose a valid JPEG or PNG image.")
+                else:
+                    target.picture.set_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(preview)))
+                return False
+            GLib.idle_add(apply)
+        future.add_done_callback(completed)
+
+    def cleanup_resources(self, *_):
+        self._closing = True
+        self.cancel.set()
+        if self._preview_pool:
+            self._preview_pool.shutdown(wait=False, cancel_futures=True)
+            self._preview_pool = None
+        if self.login_window:
+            self.login_window.close_requested()
+            self.login_window = None
+
     def close_requested(self, *_):
         if self.busy:
             self.cancel.set()
             self.status.set_text("Canceling operation. Close the window again after it finishes.")
             return True
+        if self.metadata_path and self.tag_form.dirty:
+            self.guard_metadata(self.close)
+            return True
         return False
+
+    def guard_metadata(self, continuation):
+        if self.metadata_guard:
+            return
+        dialog = Adw.AlertDialog(heading="Save metadata changes?",
+                                 body="Your audiobook has unsaved metadata or cover changes.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard Changes")
+        dialog.add_response("save", "Save Changes")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        def response(_, choice):
+            self.metadata_guard = None
+            if choice == "discard":
+                self.tag_form.mark_clean()
+                continuation()
+            elif choice == "save":
+                self.save_metadata(continuation)
+        dialog.connect("response", response)
+        self.metadata_guard = dialog
+        dialog.present(self)
 
     def add_page(self, widget, name, title, icon, scrollable=True):
         if not scrollable:
@@ -217,13 +331,13 @@ class Window(Adw.ApplicationWindow):
         self.stack.add_titled_with_icon(scroll, name, title, icon)
 
     def error(self, message):
-        dialog = Adw.AlertDialog(heading="Operation could not finish", body=message)
+        dialog = Adw.AlertDialog(heading="Operation could not finish", body=message, body_use_markup=False)
         dialog.add_response("close", "Close")
         dialog.present(self)
         return False
 
     def choose(self, callback, multiple=False, folder=False, images=False):
-        if self.busy:
+        if self.busy or self._closing:
             return
         dialog = Gtk.FileDialog(title="Choose Folder" if folder else "Choose Cover" if images else "Import Audio")
         if images:
@@ -241,6 +355,8 @@ class Window(Adw.ApplicationWindow):
                     files = list(obj.open_multiple_finish(result))
                 else:
                     files = [obj.open_finish(result)]
+                if self._closing:
+                    return
                 paths = [Path(f.get_path()) for f in files if f.get_path()]
                 if paths:
                     callback(paths)
@@ -265,21 +381,25 @@ class Window(Adw.ApplicationWindow):
         widget.add_controller(target)
 
     def work(self, title, operation, done=lambda *_: None):
+        if self._closing:
+            return
         if self.busy:
             self.error("Wait for the current operation to finish or cancel it first.")
             return
         self.busy = True
+        self._operation_id += 1
+        operation_id = self._operation_id
         self.cancel.clear()
         self.stack.set_sensitive(False)
         self.cancel_button.set_sensitive(True)
         self.update_library_actions()
         self.status.set_text(title)
         self.progress.set_fraction(0)
-        def progress(value, text):
-            def update():
+        def update(value, text):
+            if not self._closing and self.busy and self._operation_id == operation_id:
                 self.progress.set_fraction(value)
                 self.status.set_text(text)
-            GLib.idle_add(update)
+        progress = ProgressDispatch(update, GLib.idle_add)
         def worker():
             result, failure = None, None
             try:
@@ -293,7 +413,10 @@ class Window(Adw.ApplicationWindow):
                 record_exception(exc)
                 failure = ("Unexpected operation failure. Check the input and restart the application before retrying.", True)
             def finish():
+                progress.close()
                 self.busy = False
+                if self._closing:
+                    return False
                 self.stack.set_sensitive(True)
                 self.cancel_button.set_sensitive(False)
                 if failure:
@@ -309,6 +432,7 @@ class Window(Adw.ApplicationWindow):
                         record_exception(exc)
                         self.error("The operation finished, but its result could not be displayed. Check the output file and artwork format.")
                 self.update_library_actions()
+                self.announce_status()
             GLib.idle_add(finish)
         threading.Thread(target=worker, daemon=False).start()
 
@@ -360,19 +484,19 @@ class Window(Adw.ApplicationWindow):
                     raise Cancelled("Import canceled.")
                 progress(0, "Resolving input license and inspecting audio")
                 options = self.service.input_options(path, cancel)
-                result.append((path, probe(path, options)))
+                result.append((path, probe(path, options), bool(options)))
             return result
         def done(items):
-            for path, info in items:
+            for path, info, licensed in items:
                 if path in self.convert_paths:
                     continue
                 self.convert_paths.append(path)
                 text = (
                     f"{info.codec} · {info.duration / 60:.1f} min · {info.bitrate // 1000} kb/s · "
                     f"{info.sample_rate} Hz · {info.channels} channel(s) · {info.size / 1048576:.1f} MiB · {len(info.chapters)} chapters")
-                if path.suffix.lower() in {".aax", ".aaxc"}:
+                if licensed:
                     text += " · Audible license loaded"
-                row = Adw.ActionRow(title=path.name, subtitle=text)
+                row = Adw.ActionRow(title=path.name, subtitle=text, use_markup=False)
                 self.convert_list.append(row)
         self.work("Inspecting audio", inspect, done)
 
@@ -463,7 +587,7 @@ class Window(Adw.ApplicationWindow):
     def render_tracks(self):
         clear(self.track_list)
         for index, track in enumerate(self.tracks):
-            row = Adw.EntryRow(title=f"{index + 1}. {track['path'].name} · {track['info'].duration:.2f} s", text=track["title"])
+            row = Adw.EntryRow(title=f"{index + 1}. {track['path'].name} · {track['info'].duration:.2f} s", text=track["title"], use_markup=False)
             row.connect("changed", lambda entry, t=track: t.update(title=entry.get_text()))
             for delta, label, icon in [(-1, "Move up", "go-up-symbolic"), (1, "Move down", "go-down-symbolic")]:
                 action = button(label, lambda i=index, d=delta: self.move_track(i, d), icon)
@@ -518,18 +642,31 @@ class Window(Adw.ApplicationWindow):
         return box
 
     def open_metadata(self, path):
+        if self.busy:
+            return
+        if self.metadata_path and self.tag_form.dirty:
+            self.guard_metadata(lambda: self.open_metadata(path))
+            return
+        def read(*_):
+            values, art = read_tags(path)
+            return values, art, prepare_preview(art) if art else None
         def done(result):
             self.metadata_path = path
             self.metadata_label.set_text(str(path))
             self.tag_form.fill(*result)
-        self.work("Reading metadata", lambda *_: read_tags(path), done)
+        self.work("Reading metadata", read, done)
 
-    def save_metadata(self):
+    def save_metadata(self, continuation=None):
         if not self.metadata_path:
             self.error("Open an audiobook before saving tags.")
             return
         path, tags, art = self.metadata_path, self.tag_form.values(), self.tag_form.artwork
-        self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), self.completed)
+        def saved(result):
+            self.tag_form.mark_clean()
+            self.completed(result)
+            if continuation:
+                continuation()
+        self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), saved)
 
     def audible_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
@@ -542,7 +679,10 @@ class Window(Adw.ApplicationWindow):
         account_actions.append(button("Login to Audible", self.connect_audible))
         account_actions.append(button("Disconnect", lambda: self.work("Disconnecting", lambda *_: self.service.disconnect(), self.disconnected)))
         actions.append(account_actions)
-        actions.append(button("Refresh Library", self.refresh_library))
+        library_actions = Gtk.Box(spacing=6)
+        library_actions.append(button("Refresh Library", self.refresh_library))
+        library_actions.append(button("Forget Licenses…", self.confirm_forget_licenses))
+        actions.append(library_actions)
         header.append(actions)
         self.search = Gtk.SearchEntry(placeholder_text="Search title or author")
         self.search.connect("search-changed", lambda *_: self.render_books())
@@ -563,7 +703,13 @@ class Window(Adw.ApplicationWindow):
                                  margin_end=18, margin_top=18, margin_bottom=12)
         header_clamp.set_child(header)
         box.append(header_clamp)
-        self.book_list = row_list()
+        self.library_model = Gio.ListStore.new(LibraryItem)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self.setup_library_item)
+        factory.connect("bind", self.bind_library_item)
+        factory.connect("unbind", self.unbind_library_item)
+        self.book_list = Gtk.ListView(model=Gtk.NoSelection.new(self.library_model), factory=factory,
+                                      css_classes=["boxed-list"])
         list_clamp = Adw.Clamp(maximum_size=820, tightening_threshold=600,
                               margin_start=18, margin_end=18, margin_bottom=18)
         list_clamp.set_child(self.book_list)
@@ -610,13 +756,32 @@ class Window(Adw.ApplicationWindow):
     def disconnected(self, *_):
         self.books = []
         self.book_checks.clear()
-        clear(self.book_list)
-        self.account_label.set_text("Disconnected · Saved session and media licenses removed from keyring")
+        self.library_model.remove_all()
+        self.account_label.set_text("Disconnected · Download licenses kept securely for local conversion")
         self.update_library_actions()
+
+    def confirm_forget_licenses(self):
+        if self.busy:
+            return
+        dialog = Adw.AlertDialog(heading="Permanently forget download licenses?",
+            body="Existing protected audiobooks may no longer be convertible. Some titles may not be downloadable again. Ordinary Disconnect keeps these licenses.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("forget", "Permanently Forget Licenses")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("forget", Adw.ResponseAppearance.DESTRUCTIVE)
+        def response(_, choice):
+            if choice == "forget":
+                self.work("Forgetting download licenses", lambda *_: self.service.forget_media_licenses())
+        dialog.connect("response", response)
+        self.forget_dialog = dialog
+        dialog.present(self)
 
     def library_loaded(self, books):
         self.books = books
-        self.account_label.set_text(f"Connected · {len(books)} titles")
+        self.book_checks = {book.asin: bool(self.book_checks.get(book.asin)) for book in books if book.downloadable is True}
+        skipped = getattr(self.service, "library_skipped", 0)
+        self.account_label.set_text(f"Connected · {len(books)} titles" + (f" · {skipped} invalid entries skipped" if skipped else ""))
         self.render_books()
 
     def refresh_library(self):
@@ -626,32 +791,55 @@ class Window(Adw.ApplicationWindow):
                 if cancel.is_set():
                     raise Cancelled("Library refresh canceled.")
                 book.local_path = self.service.receipts.verified(book.asin, cancel)
-                book.cover_data = thumbnail(book.cover)
+                book.cover_data = thumbnail(book.cover, cancel=cancel)
                 progress((index + 1) / max(1, len(books)), "Loading covers and verifying local downloads")
             return books
         self.work("Retrieving library", operation, self.library_loaded)
 
     def render_books(self):
-        clear(self.book_list)
         query = self.search.get_text().casefold()
-        for book in self.books:
-            if query not in f"{book.title} {book.author}".casefold():
-                continue
-            availability = " · Unavailable for offline download" if not book.downloadable else ""
-            row = Adw.ActionRow(title=book.title, subtitle=f"{book.author} · {book.minutes} min" + (" · Download verified" if book.local_path else "") + availability)
-            if book.cover_data:
-                picture = Gtk.Picture(paintable=Gdk.Texture.new_from_bytes(GLib.Bytes.new(book.cover_data)),
-                                      width_request=48, height_request=64,
-                                      content_fit=Gtk.ContentFit.CONTAIN)
-                picture.set_alternative_text(f"Cover of {book.title}")
-                row.add_prefix(picture)
-            check = Gtk.CheckButton(active=self.book_checks.get(book.asin, False), tooltip_text=f"Select {book.title}")
-            check.update_property([Gtk.AccessibleProperty.LABEL], [f"Select {book.title}"])
-            check.set_sensitive(book.downloadable)
-            check.connect("toggled", lambda widget, asin=book.asin: self.selection_changed(asin, widget.get_active()))
-            row.add_prefix(check)
-            self.book_list.append(row)
+        items = [LibraryItem(book) for book in self.books if query in f"{book.title} {book.author}".casefold()]
+        self.library_model.splice(0, self.library_model.get_n_items(), items)
         self.update_library_actions()
+
+    def setup_library_item(self, factory, item):
+        self._library_widgets_created += 1
+        box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        row = Adw.ActionRow(use_markup=False)
+        row._book, row._binding = None, False
+        row._check = Gtk.CheckButton()
+        row._picture = Gtk.Picture(width_request=48, height_request=64, content_fit=Gtk.ContentFit.CONTAIN)
+        row.add_prefix(row._check)
+        row.add_prefix(row._picture)
+        def toggled(check):
+            if row._book is not None and not row._binding:
+                self.selection_changed(row._book.asin, check.get_active())
+        row._check.connect("toggled", toggled)
+        box.append(row)
+        item.set_child(box)
+
+    def bind_library_item(self, factory, item):
+        book = item.get_item().book
+        row = item.get_child().get_first_child()
+        row._book, row._binding = book, True
+        row.set_title(book.title)
+        duration = f"{book.minutes} min" if book.minutes is not None else "Unknown duration"
+        availability = (" · Eligibility not reported; refresh to check" if book.downloadable is None
+                        else " · Unavailable for offline download" if not book.downloadable else "")
+        row.set_subtitle(f"{book.author} · {duration}" + (" · Download verified" if book.local_path else "") + availability)
+        row._check.set_active(self.book_checks.get(book.asin, False))
+        row._check.set_sensitive(book.downloadable is True)
+        row._check.update_property([Gtk.AccessibleProperty.LABEL], [f"Select {book.title}"])
+        row._check.set_tooltip_text(f"Select {book.title}" if book.downloadable else availability.strip(" ·"))
+        row._picture.set_visible(bool(book.cover_data))
+        row._picture.set_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(book.cover_data)) if book.cover_data else None)
+        row._picture.set_alternative_text(f"Cover of {book.title}")
+        row._binding = False
+
+    def unbind_library_item(self, factory, item):
+        row = item.get_child().get_first_child()
+        row._book = None
+        row._picture.set_paintable(None)
 
     def selection_changed(self, asin, active):
         self.book_checks[asin] = active
@@ -750,7 +938,7 @@ class Window(Adw.ApplicationWindow):
 
     def about(self):
         dialog = Adw.AboutDialog(application_name="Audiobook Utility",
-            application_icon=APP_ID, version="0.1.0", license_type=Gtk.License.AGPL_3_0_ONLY,
+            application_icon=APP_ID, version=__version__, license_type=Gtk.License.AGPL_3_0_ONLY,
             comments="Convert, merge and tag audiobooks. Free software under the GNU AGPL version 3; no warranty.")
         dialog.add_legal_section("Third-party components", None, Gtk.License.CUSTOM,
             "Uses audible (AGPLv3), Mutagen (GPLv2 or later), GTK/Libadwaita/PyGObject (LGPL), WebKitGTK/libsoup, FFmpeg, Pillow, HTTPX and SecretStorage. See THIRD_PARTY.md in the source distribution for attribution and license obligations.")

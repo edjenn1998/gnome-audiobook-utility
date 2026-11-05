@@ -47,11 +47,11 @@ FFmpeg build. Install matching FFmpeg and FFprobe versions.
 After downloading, mark it executable and launch it:
 
 ```sh
-chmod +x Audiobook_Utility-0.1.0-x86_64.AppImage
-./Audiobook_Utility-0.1.0-x86_64.AppImage
+chmod +x Audiobook_Utility-0.1.1-x86_64.AppImage
+./Audiobook_Utility-0.1.1-x86_64.AppImage
 ```
 
-Local builds are written to `dist/Audiobook_Utility-0.1.0-x86_64.AppImage`.
+Local builds are written to `dist/Audiobook_Utility-0.1.1-x86_64.AppImage`.
 Close the running development copy before launching it. It bundles Python,
 GTK/Adwaita, WebKit, FFmpeg and the
 required libraries/data; the source checkout and virtual environment are not
@@ -135,6 +135,13 @@ directly to Amazon's web page; the application never reads them. The existing
 Audible US marketplace and credential-storage backend are unchanged. A missing
 WebKit runtime produces an installation hint without removing saved credentials.
 
+Local remediation changes are described in `REMEDIATION_REPORT.md`; they have not
+been published as a replacement AppImage. In the local source, unknown download
+eligibility is distinguished from an explicit denial, malformed nonessential
+library fields are tolerated, and source-container protection is checked even if
+a filename's extension has changed. Download journals retain usable license
+associations if receipt finalization needs recovery. Normal sign-out keeps licenses.
+
 If protected inspection fails, collect evidence on the desktop holding the file
 and keyring, without creating an M4B:
 
@@ -169,7 +176,9 @@ does not establish complete-book playback. See docs/audible-integration.md.
   account activation and FFmpeg permit it. AAXC conversion needs the download
   receipt and keyring license; moved/renamed files are matched by SHA-256. Old
   files without receipts can use their original trailing `[ASIN]` filename and
-  legacy keyring license. Disconnect removes saved media licenses too.
+   legacy keyring license. Normal Disconnect removes authentication only; download
+   licenses stay in the keyring. **Forget Licenses…** is a separate confirmed,
+   destructive action that can make existing protected files unconvertible.
 - Merging normalizes to 48 kHz stereo PCM and encodes once; it does not currently
   offer a lossless compressed-stream concat path. Temporary space is roughly
   192 KB per second of audio, plus the encoded output and one decoded track.

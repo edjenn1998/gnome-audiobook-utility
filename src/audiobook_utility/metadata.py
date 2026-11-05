@@ -44,6 +44,17 @@ def validate_artwork(data: bytes) -> tuple[bytes, str]:
         raise UtilityError("The cover image is invalid or too large.") from exc
 
 
+def prepare_preview(data, size=(320, 400)):
+    """Return bounded preview bytes; original artwork is kept separately."""
+    validate_artwork(data)
+    with Image.open(io.BytesIO(data)) as image:
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        preview = image.convert("RGBA")
+        output = io.BytesIO()
+        preview.save(output, format="PNG")
+        return output.getvalue()
+
+
 def load(path: Path):
     try:
         audio = File(path)

@@ -1,10 +1,14 @@
 import re
 import threading
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
 
 from .files import Cancelled, UtilityError, staging
+from .network import check_transfer, https_url, secure_stream
 
 
 CONTENT_TYPES = {"audio/aax", "audio/vnd.audible.aax", "audio/audible", "audio/mp4",
@@ -25,9 +29,9 @@ def content_length(response):
 
 
 def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_: None,
-             client: httpx.Client | None = None):
-    if httpx.URL(url).scheme != "https":
-        raise UtilityError("The download service supplied an insecure URL.")
+             client: httpx.Client | None = None, before_publish=lambda *_: None, max_duration=21600):
+    https_url(url)
+    deadline = time.monotonic() + max_duration
     own_client = client is None
     client = client or httpx.Client(timeout=httpx.Timeout(30, connect=15), follow_redirects=True)
     try:
@@ -45,7 +49,7 @@ def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_
                 else:
                     count, expected, validator, signature = 0, None, None, b""
                 try:
-                    with client.stream("GET", url, headers=headers) as response:
+                    with secure_stream(client, url, headers, cancel, deadline) as response:
                         if response.status_code in {401, 403}:
                             raise UtilityError("Download authorization expired. Refresh the library and retry.")
                         if resuming and response.status_code == 416:
@@ -81,9 +85,8 @@ def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_
                         with temporary.open("r+b") as output:
                             output.seek(count)
                             output.truncate()
-                            for chunk in response.iter_bytes(256 * 1024):
-                                if cancel.is_set():
-                                    raise Cancelled("Download canceled; incomplete data removed.")
+                            for chunk in response.iter_bytes():
+                                check_transfer(cancel, deadline)
                                 if len(signature) < 32:
                                     signature += chunk[:32 - len(signature)]
                                 if count + len(chunk) > response_end:
@@ -104,8 +107,23 @@ def download(url: str, target: Path, cancel: threading.Event, progress=lambda *_
                     retryable = not isinstance(exc, httpx.HTTPStatusError) or exc.response.status_code >= 500 or exc.response.status_code == 429
                     if attempt == 2 or not retryable:
                         raise UtilityError("Download interrupted. Check your connection and retry.") from None
-                    if cancel.wait(2 ** attempt):
+                    delay = 2 ** attempt
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        value = exc.response.headers.get("retry-after", "")
+                        try:
+                            delay = max(delay, float(value))
+                        except ValueError:
+                            try:
+                                delay = max(delay, (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds())
+                            except (ValueError, TypeError, OverflowError):
+                                pass
+                    if delay > 300 or time.monotonic() + delay >= deadline:
+                        raise UtilityError("The service asked for a longer retry delay. Wait and retry later.") from None
+                    if cancel.wait(delay):
                         raise Cancelled("Download canceled.")
+            before_publish(temporary)
+            if cancel.is_set():
+                raise Cancelled("Download canceled before publication.")
         progress(1, "Download verified")
         return target
     finally:

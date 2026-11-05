@@ -15,7 +15,8 @@ PREFIX = "gnome-audiobook-utility"
 ROOT_FILES = {
     ".gitignore", "CHANGELOG.md", "LICENSE", "MANIFEST.in", "README.md", "THIRD_PARTY.md",
     "MIGRATION.md", "OPENCODE_HANDOFF.md", "meson.build", "meson.options", "pyproject.toml",
-    "requirements.lock", "AGENTS.md",
+    "requirements.lock", "AGENTS.md", "setup.py", "package_sources.py", "PACKAGING_FILES.txt",
+    "CODE_REVIEW.md", "REMEDIATION_REPORT.md", ".github/workflows/check.yml",
 }
 SOURCE_DIRS = {"src", "tests", "docs", "data", "tools"}
 EXCLUDED_PARTS = {".venv", ".deps", "__pycache__", ".pytest_cache", ".ruff_cache", "build", "dist"}
@@ -69,32 +70,36 @@ def add_bytes(archive: tarfile.TarFile, name: str, content: bytes, mode: int, mt
 
 
 def verify(archive_path: Path, manifest: dict):
+    def require(condition, message):
+        if not condition:
+            raise ValueError(message)
     expected = {entry["path"]: entry for entry in manifest["files"]}
+    require(len(expected) == len(manifest["files"]), "Duplicate manifest entries")
     with tarfile.open(archive_path, "r:gz") as archive:
         members = archive.getmembers()
-        assert len({m.name for m in members}) == len(members), "Duplicate archive entries"
+        require(len({m.name for m in members}) == len(members), "Duplicate archive entries")
         found = set()
         for member in members:
             name = Path(member.name)
-            assert not name.is_absolute() and ".." not in name.parts
-            assert name.parts[0] == PREFIX and member.isfile(), "Non-portable archive member"
+            require(not name.is_absolute() and ".." not in name.parts, "Unsafe archive path")
+            require(bool(name.parts) and name.parts[0] == PREFIX and member.isfile(), "Non-portable archive member")
             relative = name.relative_to(PREFIX).as_posix()
             content = archive.extractfile(member).read()
             if relative == "MIGRATION_MANIFEST.json":
-                assert json.loads(content) == manifest
+                require(json.loads(content) == manifest, "Embedded manifest mismatch")
             else:
-                assert relative in expected, f"Unexpected member: {relative}"
+                require(relative in expected, f"Unexpected member: {relative}")
                 entry = expected[relative]
-                assert len(content) == entry["size"]
-                assert hashlib.sha256(content).hexdigest() == entry["sha256"]
-                assert member.mode == entry["mode"]
+                require(len(content) == entry["size"], f"Size mismatch: {relative}")
+                require(hashlib.sha256(content).hexdigest() == entry["sha256"], f"Hash mismatch: {relative}")
+                require(member.mode == entry["mode"], f"Mode mismatch: {relative}")
                 found.add(relative)
-        assert found == set(expected), "Missing migration files"
+        require(found == set(expected), "Missing migration files")
         with tempfile.TemporaryDirectory(prefix="verify-", dir=archive_path.parent) as temporary:
             archive.extractall(temporary, filter="data")
             restored = Path(temporary) / PREFIX
-            assert git("rev-parse", "HEAD", cwd=restored).strip() == manifest["git_head"]
-            assert git("status", "--porcelain=v1", "--untracked-files=all", cwd=restored).splitlines() == manifest["git_status"]
+            require(git("rev-parse", "HEAD", cwd=restored).strip() == manifest["git_head"], "Restored Git HEAD mismatch")
+            require(git("status", "--porcelain=v1", "--untracked-files=all", cwd=restored).splitlines() == manifest["git_status"], "Restored Git status mismatch")
             git("fsck", "--full", cwd=restored)
 
 
@@ -131,8 +136,10 @@ def main():
             add_bytes(archive, "MIGRATION_MANIFEST.json",
                       (json.dumps(manifest, indent=2, ensure_ascii=True) + "\n").encode(),
                       0o644, int(datetime.now(UTC).timestamp()))
-        assert git("rev-parse", "HEAD").strip() == manifest["git_head"], "Git HEAD changed during packaging"
-        assert git("status", "--porcelain=v1", "--untracked-files=all").splitlines() == manifest["git_status"], "Git status changed during packaging"
+        if git("rev-parse", "HEAD").strip() != manifest["git_head"]:
+            raise ValueError("Git HEAD changed during packaging")
+        if git("status", "--porcelain=v1", "--untracked-files=all").splitlines() != manifest["git_status"]:
+            raise ValueError("Git status changed during packaging")
         verify(temporary, manifest)
         os.replace(temporary, destination)
     finally:

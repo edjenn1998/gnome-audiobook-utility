@@ -59,7 +59,8 @@ def secure_store(monkeypatch):
                     if all(attrs.get(k) == v for k, v in attributes.items())]
     collection = Collection()
     store = SecretStore()
-    monkeypatch.setattr(store, "_collection", lambda: collection)
+    from contextlib import nullcontext
+    monkeypatch.setattr(store, "_collection", lambda: nullcontext(collection))
     return store
 
 
@@ -108,7 +109,7 @@ def test_download_voucher_restart_move_probe_convert(encrypted_aaxc, tmp_path, s
     with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(
             200, content=body, headers={"content-type": "audio/aax", "content-length": str(len(body))}))) as http:
         monkeypatch.setattr(audible_service, "download",
-            lambda url, target, cancel, progress: download(url, target, cancel, progress, client=http))
+            lambda url, target, cancel, progress, **kw: download(url, target, cancel, progress, client=http, **kw))
         books = service.library(threading.Event())
         assert len(books) == 1 and books[0].asin == asin and books[0].downloadable
         path = service.download_book(books[0], tmp_path / "downloads", threading.Event())

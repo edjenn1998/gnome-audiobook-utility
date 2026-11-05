@@ -1,5 +1,7 @@
 """Build a private-runtime x86_64 AppImage on Arch/CachyOS without system changes."""
 import argparse
+import base64
+import gzip
 import hashlib
 import importlib.metadata
 import json
@@ -9,10 +11,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / "dist/appimage"
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+WORK = ROOT / f"dist/appimage-{VERSION}"
 APPDIR = WORK / "AudiobookUtility.AppDir"
 APP_ID = "io.github.edjenn1998.AudiobookUtility"
 TOOL_URL = "https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-951-x86_64.AppImage"
@@ -29,6 +33,33 @@ PACKAGES = [
 BINARIES = {f"python{sys.version_info.major}.{sys.version_info.minor}", "python3", "python", "ffmpeg", "ffprobe", "bwrap", "xdg-dbus-proxy",
             "glib-compile-schemas", "gio-querymodules", "gdk-pixbuf-query-loaders", "gst-inspect-1.0"}
 COPIED = set()
+COPIED_HASHES = {}
+NATIVE_PYTHON = {"pygobject": "python-gobject", "pycairo": "python-cairo", "pillow": "python-pillow",
+                 "cffi": "python-cffi", "pycparser": "python-pycparser", "typing-extensions": "python-typing_extensions"}
+
+
+def package_hashes(name):
+    version = output("pacman", "-Q", name).strip().split(" ", 1)[1]
+    path = Path("/var/lib/pacman/local") / (name + "-" + version) / "mtree"
+    hashes = {}
+    with gzip.open(path, "rt") as stream:
+        for line in stream:
+            parts = line.split()
+            if not parts or not parts[0].startswith("./"):
+                continue
+            digest = next((field.split("=", 1)[1] for field in parts[1:] if field.startswith("sha256digest=")), None)
+            if digest:
+                filename = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), parts[0][1:])
+                hashes[Path(filename)] = digest
+    return hashes
+
+
+def approved_sources():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("package_sources", ROOT / "package_sources.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run(*args, **kwargs):
@@ -56,6 +87,7 @@ def copy_native(source):
         target.symlink_to(os.path.relpath(APPDIR / real.relative_to("/"), target.parent))
     else:
         shutil.copy2(source, target, follow_symlinks=True)
+        COPIED_HASHES[source] = hashlib.sha256(target.read_bytes()).hexdigest()
 
 
 def wanted(path):
@@ -82,7 +114,10 @@ def native_packages():
             if wanted(path):
                 copy_native(path)
     for name in ("ffmpeg", "ffprobe"):
-        copy_native(Path(shutil.which(name)).resolve())
+        binary = Path(shutil.which(name) or "").resolve()
+        if binary != Path("/usr/bin") / name:
+            raise ValueError(f"Build requires the distribution's /usr/bin/{name}, not a PATH override")
+        copy_native(binary)
     if Path("/usr/lib/locale/locale-archive").is_file():
         copy_native("/usr/lib/locale/locale-archive")
     # Load-on-demand GI libraries need their typelibs as well as ELF dependencies.
@@ -104,30 +139,87 @@ def native_packages():
             copy_native(path)
 
 
+def validate_distribution(distribution, expected=None):
+    if expected is not None and distribution.version != expected:
+        raise ValueError("Installed dependency version does not match requirements.lock")
+    origin = distribution.read_text("direct_url.json")
+    if origin:
+        metadata = json.loads(origin)
+        if metadata.get("dir_info", {}).get("editable"):
+            raise ValueError("Unsafe editable dependency cannot be packaged")
+        # Build provenance must never carry a credential-bearing URL.
+        from urllib.parse import urlsplit
+        parsed = urlsplit(metadata.get("url", ""))
+        if parsed.username or parsed.password:
+            raise ValueError("Dependency origin URL contains credentials")
+    base = Path(distribution.locate_file("")).resolve()
+    native = NATIVE_PYTHON.get(re.sub(r"[-_.]+", "-", distribution.metadata["Name"]).lower())
+    if base.is_relative_to("/usr/lib") and native:
+        # Distribution packages may omit RECORD or strip extensions after wheel
+        # construction. Verify against the package manager's signed-package mtree,
+        # rather than trusting stale pre-strip wheel hashes or skipping integrity.
+        expected_hashes = package_hashes(native)
+        selected = []
+        for name in output("pacman", "-Qlq", native).splitlines():
+            source = Path(name)
+            if not source.is_relative_to(base) or not source.is_file() or "__pycache__" in source.parts or source.suffix == ".pyc":
+                continue
+            if not source.resolve().is_relative_to(base):
+                raise ValueError("Native Python dependency escapes its site directory")
+            expected_hash = expected_hashes.get(source)
+            if expected_hash is None or hashlib.sha256(source.read_bytes()).hexdigest() != expected_hash:
+                raise ValueError("Native Python dependency differs from its package integrity inventory")
+            selected.append((source.relative_to(base), source))
+        if not selected:
+            raise ValueError("Native Python dependency has no runtime files")
+        return selected
+    if not distribution.files:
+        raise ValueError("Installed dependency has no auditable file inventory")
+    selected = []
+    for record in distribution.files:
+        relative = Path(str(record))
+        if "__pycache__" in relative.parts or relative.suffix == ".pyc":
+            continue
+        if relative.is_absolute() or ".." in relative.parts:
+            if re.fullmatch(r"(?:\.\./){1,3}(?:bin/[a-zA-Z0-9_.-]+|share/man/man[0-9]/[a-zA-Z0-9_.-]+)", str(record)):
+                continue  # Declared wheel console scripts are not app runtime files.
+            raise ValueError("Dependency inventory escapes its installed package directory")
+        if relative.suffix in {".pth", ".egg-link"} or relative.name.startswith("__editable__"):
+            raise ValueError("Unsafe editable/path-injection dependency layout")
+        source = base / relative
+        if not source.is_file() or not source.resolve().is_relative_to(base):
+            raise ValueError("Dependency file is missing or escapes its package directory")
+        if record.hash:
+            if record.hash.mode not in {"sha256", "sha384", "sha512"}:
+                raise ValueError("Unsupported dependency RECORD hash")
+            actual = base64.urlsafe_b64encode(hashlib.new(record.hash.mode, source.read_bytes()).digest()).rstrip(b"=").decode()
+            if actual != record.hash.value:
+                raise ValueError("Installed dependency file does not match its RECORD hash")
+        selected.append((relative, source))
+    return selected
+
+
 def python_packages():
-    names = [line.split("==", 1)[0] for line in (ROOT / "requirements.lock").read_text().splitlines()
-             if line and not line.startswith("#")]
-    names += ["PyGObject", "pycairo", "cffi", "pycparser"]
+    locked = {}
+    for line in (ROOT / "requirements.lock").read_text().splitlines():
+        if line and not line.startswith("#"):
+            name, version = line.split("==", 1)
+            locked[name] = version
+    for name in ("PyGObject", "pycairo", "cffi", "pycparser"):
+        locked.setdefault(name, None)  # Native ABI versions are captured in provenance.
     site = APPDIR / "usr/lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
     site.mkdir(parents=True, exist_ok=True)
     versions = {}
-    for name in names:
+    for name, expected in locked.items():
         distribution = importlib.metadata.distribution(name)
         versions[distribution.metadata["Name"]] = distribution.version
-        base = Path(distribution.locate_file("")).resolve()
-        for record in distribution.files or []:
-            relative = Path(str(record))
-            if relative.is_absolute() or ".." in relative.parts or "__pycache__" in relative.parts or relative.suffix == ".pyc":
-                continue
-            source = base / relative
-            if source.is_file():
-                target = site / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists() or target.is_symlink():
-                    target.unlink()
-                shutil.copy2(source, target, follow_symlinks=True)
-    shutil.copytree(ROOT / "src/audiobook_utility", site / "audiobook_utility",
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"), dirs_exist_ok=True)
+        for relative, source in validate_distribution(distribution, expected):
+            target = site / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            shutil.copy2(source, target, follow_symlinks=True)
+    approved_sources().copy_sources(ROOT, site / "audiobook_utility", prefix="src/audiobook_utility")
     return versions
 
 
@@ -188,6 +280,8 @@ def configuration():
     certificate = etc / "ssl/certs/ca-certificates.crt"
     certificate.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(certifi.where(), certificate)
+    (certificate.parent / "additional-ca.pem").touch()
+    (etc / "ca-certificates/trust-source/anchors").mkdir(parents=True, exist_ok=True)
     (etc / "ssl/cert.pem").symlink_to("certs/ca-certificates.crt")
     extracted = etc / "ca-certificates/extracted"
     extracted.mkdir(parents=True, exist_ok=True)
@@ -203,16 +297,13 @@ def configuration():
     resource = APPDIR / "usr/share/audiobook-utility"
     resource.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "tools/appimage/entry.py", resource / "appimage-entry.py")
+    shutil.copy2(ROOT / "tools/appimage/appimage_trust.py", resource / "appimage_trust.py")
     shutil.copy2(ROOT / "tools/appimage/self_test.py", resource / "appimage-self-test.py")
     for name in ("LICENSE", "THIRD_PARTY.md", "README.md", "requirements.lock"):
         shutil.copy2(ROOT / name, resource / name)
     source = resource / "source"
-    for name in ("src", "data", "docs", "tests", "tools"):
-        shutil.copytree(ROOT / name, source / name,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info"), dirs_exist_ok=True)
-    for name in ("pyproject.toml", "meson.build", "meson.options", "MANIFEST.in", "requirements.lock",
-                 "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "AGENTS.md", "MIGRATION.md", "OPENCODE_HANDOFF.md"):
-        shutil.copy2(ROOT / name, source / name)
+    approved_sources().copy_sources(ROOT, source)
+    approved_sources().write_inventory(ROOT, resource / "source-inventory.json")
     desktop = ROOT / "data" / f"{APP_ID}.desktop"
     shutil.copy2(desktop, APPDIR / desktop.name)
     applications = APPDIR / "usr/share/applications"
@@ -249,12 +340,21 @@ def notices(versions):
         result = subprocess.run(["pacman", "-Qoq", *paths[start:start + 250]], capture_output=True, text=True)
         owners.update(result.stdout.splitlines())
     packages = {}
+    native_hashes = {}
     licenses = APPDIR / "usr/share/licenses"
     for name in sorted(owners):
         packages[name] = output("pacman", "-Q", name).strip().split(" ", 1)[1]
+        native_hashes.update(package_hashes(name))
         directory = Path("/usr/share/licenses") / name
         if directory.is_dir():
             shutil.copytree(directory, licenses / name, dirs_exist_ok=True, symlinks=False)
+    for source in COPIED:
+        if source.is_symlink():
+            continue
+        expected_hash = native_hashes.get(source)
+        if expected_hash is not None:
+            if COPIED_HASHES.get(source) != expected_hash:
+                raise ValueError("A collected native file differs from its package integrity inventory")
     for name in ("common", "spdx"):
         directory = Path("/usr/share/licenses") / name
         if directory.is_dir():
@@ -263,8 +363,12 @@ def notices(versions):
     status = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain"], capture_output=True, text=True)
     manifest = {"architecture": "x86_64", "python": sys.version.split()[0], "python_packages": versions,
                 "native_packages": packages, "builder_sha256": TOOL_SHA256,
+                "native_collection_hashes": {str(path): digest for path, digest in COPIED_HASHES.items()},
                 "source_head": revision.stdout.strip() if revision.returncode == 0 else "source-archive",
                 "source_dirty": bool(status.stdout) if status.returncode == 0 else None,
+                "source_files": approved_sources().inventory(ROOT),
+                "runtime_file_hashes": {str(p.relative_to(APPDIR)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                        for p in APPDIR.rglob("*") if p.is_file() and not p.is_symlink()},
                 "system_services": ["Linux kernel with unprivileged user namespaces", "desktop display server",
                                     "desktop D-Bus and Secret Service for Audible"]}
     (APPDIR / "usr/share/audiobook-utility/appimage-build.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -283,11 +387,11 @@ def package():
     for name in list(env):
         if name.startswith("GITHUB_") or name in {"CI", "TRAVIS", "APPIMAGE"}:
             env.pop(name, None)
-    env.update(APPIMAGE_EXTRACT_AND_RUN="1", VERSION="0.1.0", ARCH="x86_64",
+    env.update(APPIMAGE_EXTRACT_AND_RUN="1", VERSION=VERSION, ARCH="x86_64",
                TMPDIR=str(ROOT / "dist/tmp"), HOME=str(WORK / "tool-home"),
                XDG_CACHE_HOME=str(WORK / "tool-cache"))
     Path(env["HOME"]).mkdir(parents=True, exist_ok=True)
-    destination = ROOT / "dist/Audiobook_Utility-0.1.0-x86_64.AppImage"
+    destination = ROOT / f"dist/Audiobook_Utility-{VERSION}-x86_64.AppImage"
     log = WORK / "appimagetool.log"
     print(f"Compressing AppImage (build log: {log})...", flush=True)
     with log.open("w") as stream:
@@ -311,6 +415,7 @@ def main():
     WORK.mkdir(parents=True, exist_ok=True)
     (ROOT / "dist/tmp").mkdir(exist_ok=True)
     if not args.package_only:
+        approved_sources().source_files(ROOT)  # Validate before touching staging.
         if APPDIR.exists():
             if not (APPDIR / ".audiobook-appdir").is_file():
                 raise RuntimeError("Refusing to replace an unrecognized AppDir")
