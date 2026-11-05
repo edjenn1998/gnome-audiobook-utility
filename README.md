@@ -135,6 +135,13 @@ directly to Amazon's web page; the application never reads them. The existing
 Audible US marketplace and credential-storage backend are unchanged. A missing
 WebKit runtime produces an installation hint without removing saved credentials.
 
+Local remediation changes are described in `REMEDIATION_REPORT.md`; they have not
+been published as a replacement AppImage. In the local source, unknown download
+eligibility is distinguished from an explicit denial, malformed nonessential
+library fields are tolerated, and source-container protection is checked even if
+a filename's extension has changed. Download journals retain usable license
+associations if receipt finalization needs recovery. Normal sign-out keeps licenses.
+
 If protected inspection fails, collect evidence on the desktop holding the file
 and keyring, without creating an M4B:
 

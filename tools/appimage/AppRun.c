@@ -11,6 +11,21 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sched.h>
+#include <sys/wait.h>
+#include <sys/utsname.h>
+
+static void fail(const char *message) {
+    fputs(message, stderr);
+    fputc('\n', stderr);
+    exit(1);
+}
+
+static void root_path(char *buffer, size_t size, const char *root, const char *suffix) {
+    int length = snprintf(buffer, size, "%s%s", root, suffix);
+    if (length < 0 || (size_t)length >= size)
+        fail("AppImage runtime path is too long; use a shorter extraction directory.");
+}
 
 static char *args[8192];
 static size_t count;
@@ -20,7 +35,9 @@ static void add(const char *value) {
         fputs("Too many runtime mount arguments.\n", stderr);
         exit(1);
     }
-    args[count++] = strdup(value);
+    char *copy = strdup(value);
+    if (!copy) fail("Not enough memory to start the AppImage runtime.");
+    args[count++] = copy;
 }
 
 static void option(const char *name, const char *a, const char *b) {
@@ -36,20 +53,39 @@ static int reserved(const char *name) {
 }
 
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "--diagnose-runtime")) {
+        struct utsname system;
+        if (uname(&system)) { perror("Read kernel information"); return 1; }
+        printf("Kernel: %s %s; architecture: %s\n", system.sysname, system.release, system.machine);
+        puts("Build baseline: Arch/CachyOS x86_64; other distributions/CPU baselines require testing.");
+        pid_t probe = fork();
+        if (probe < 0) { perror("Probe user namespaces"); return 1; }
+        if (probe == 0) _exit(unshare(CLONE_NEWUSER) == 0 ? 0 : 2);
+        int status;
+        while (waitpid(probe, &status, 0) < 0) {
+            if (errno != EINTR) { perror("Wait for namespace probe"); return 1; }
+        }
+        int available = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        puts(available ? "Unprivileged user namespace probe: available" :
+             "Unprivileged user namespace probe: unavailable/restricted; this runtime may not launch.");
+        puts("No host policy or WebKit sandbox setting was changed. A desktop/session portal and Secret Service are needed for account workflows.");
+        return available ? 0 : 2;
+    }
     char executable[PATH_MAX], root[PATH_MAX], path[PATH_MAX], lib[PATH_MAX];
     ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
     if (length < 0) { perror("Locate AppImage runtime"); return 1; }
+    if ((size_t)length == sizeof(executable) - 1) fail("AppImage executable path is too long.");
     executable[length] = 0;
     strcpy(root, executable);
     char *slash = strrchr(root, '/');
     if (!slash) return 1;
     *slash = 0;
-    snprintf(lib, sizeof(lib), "%s/usr/lib", root);
-    snprintf(path, sizeof(path), "%s/usr/lib/ld-linux-x86-64.so.2", root);
+    root_path(lib, sizeof(lib), root, "/usr/lib");
+    root_path(path, sizeof(path), root, "/usr/lib/ld-linux-x86-64.so.2");
     add(path);
     add("--inhibit-cache");
     option("--library-path", lib, NULL);
-    snprintf(path, sizeof(path), "%s/usr/bin/bwrap", root);
+    root_path(path, sizeof(path), root, "/usr/bin/bwrap");
     add(path);
     add("--unshare-user");
     add("--die-with-parent");
@@ -65,9 +101,9 @@ int main(int argc, char **argv) {
         option("--bind-try", path, path);
     }
     closedir(directory);
-    snprintf(path, sizeof(path), "%s/usr", root);
+    root_path(path, sizeof(path), root, "/usr");
     option("--ro-bind", path, "/usr");
-    snprintf(path, sizeof(path), "%s/etc", root);
+    root_path(path, sizeof(path), root, "/etc");
     option("--ro-bind", path, "/etc");
     option("--symlink", "usr/bin", "/bin");
     option("--symlink", "usr/bin", "/sbin");
@@ -82,6 +118,34 @@ int main(int argc, char **argv) {
         snprintf(path, sizeof(path), "/etc/%s", host_files[i]);
         if (!access(path, F_OK)) option("--ro-bind", path, path);
     }
+    const char *override = getenv("SSL_CERT_FILE");
+    if ((!override || !*override) && getenv("AUDIOBOOK_USE_HOST_CA") && !strcmp(getenv("AUDIOBOOK_USE_HOST_CA"), "1")) {
+        const char *candidates[] = {"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem", NULL};
+        for (int i = 0; candidates[i]; i++) {
+            if (!access(candidates[i], R_OK)) { override = candidates[i]; break; }
+        }
+        if (!override || !*override) fail("No readable host CA bundle found. Set SSL_CERT_FILE explicitly.");
+    }
+    const char *extra = getenv("AUDIOBOOK_EXTRA_CA_CERTS");
+    if (override && *override) {
+        struct stat info;
+        if (stat(override, &info) || !S_ISREG(info.st_mode) || !info.st_size || info.st_size > 16 * 1024 * 1024 || access(override, R_OK))
+            fail("The explicit CA bundle must be a readable regular certificate file.");
+        option("--ro-bind", override, "/etc/ssl/certs/ca-certificates.crt");
+        option("--tmpfs", "/usr/share/ca-certificates/trust-source", NULL);
+        option("--tmpfs", "/etc/ca-certificates/trust-source", NULL);
+        option("--dir", "/etc/ca-certificates/trust-source/anchors", NULL);
+        option("--ro-bind", override, "/etc/ca-certificates/trust-source/anchors/selected.pem");
+    }
+    if (extra && *extra) {
+        struct stat info;
+        if (stat(extra, &info) || !S_ISREG(info.st_mode) || !info.st_size || info.st_size > 16 * 1024 * 1024 || access(extra, R_OK))
+            fail("Additional CA certificates must be a readable regular certificate file.");
+        if (!override || !*override) option("--tmpfs", "/etc/ca-certificates/trust-source/anchors", NULL);
+        option("--ro-bind", extra, "/etc/ssl/certs/additional-ca.pem");
+        option("--ro-bind", extra, "/etc/ca-certificates/trust-source/anchors/additional.pem");
+        option("--setenv", "AUDIOBOOK_HAS_EXTRA_CA", "1");
+    } else option("--unsetenv", "AUDIOBOOK_HAS_EXTRA_CA", NULL);
     option("--unsetenv", "PYTHONPATH", NULL);
     option("--unsetenv", "LD_LIBRARY_PATH", NULL);
     option("--unsetenv", "LD_PRELOAD", NULL);
@@ -120,14 +184,22 @@ int main(int argc, char **argv) {
     add("/usr/bin/python3");
     add("-s");
     add("-B");
-    if (argc > 1 && !strcmp(argv[1], "--python")) {
-        for (int i = 2; i < argc; i++) add(argv[i]);
-    } else {
-        add("/usr/share/audiobook-utility/appimage-entry.py");
-        for (int i = 1; i < argc; i++) add(argv[i]);
-    }
+    add("/usr/share/audiobook-utility/appimage-entry.py");
+    for (int i = 1; i < argc; i++) add(argv[i]);
     args[count] = NULL;
-    execv(args[0], args);
-    perror("Start bundled Audiobook Utility runtime");
-    return errno == ENOENT ? 127 : 1;
+    pid_t child = fork();
+    if (child < 0) { perror("Start runtime process"); return 1; }
+    if (child == 0) {
+        execv(args[0], args);
+        int error = errno;
+        perror("Start bundled Audiobook Utility runtime");
+        _exit(error == ENOENT ? 127 : 1);
+    }
+    int status;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) { perror("Wait for runtime process"); return 1; }
+    }
+    int result = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    if (result) fputs("Runtime/application failed. Run this AppImage with --diagnose-runtime for kernel/namespace prerequisites; no security bypass is applied.\n", stderr);
+    return result;
 }

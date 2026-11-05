@@ -31,6 +31,12 @@ class Settings:
                 raise UtilityError("Choose absolute download and output directory paths.")
         if self.temporary and not Path(self.temporary).expanduser().is_absolute():
             raise UtilityError("The temporary directory must be an absolute path.")
+        if type(self.chapters) is not bool:
+            raise UtilityError("The chapter preference must be true or false.")
+        for field in ("downloads", "output", "temporary"):
+            value = getattr(self, field)
+            if value:
+                setattr(self, field, str(Path(value).expanduser().resolve()))
 
     @classmethod
     def load(cls, path: Path | None = None):

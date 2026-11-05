@@ -56,6 +56,13 @@ def main(arguments=None):
     image = io.BytesIO()
     Image.new("RGB", (32, 48), "blue").save(image, format="PNG")
     parent.tag_form.set_art(image.getvalue())
+    deadline = time.monotonic() + 5
+    while parent.tag_form.picture.get_paintable() is None:
+        while GLib.MainContext.default().pending():
+            GLib.MainContext.default().iteration(False)
+        if time.monotonic() > deadline:
+            raise RuntimeError("Bundled artwork preview timed out")
+        time.sleep(0.01)
     assert parent.tag_form.picture.get_paintable() is not None
     WebKit, _ = webkit_modules()
     target = "https://www.amazon.com/ap/maplanding"

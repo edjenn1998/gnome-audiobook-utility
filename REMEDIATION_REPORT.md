@@ -30,7 +30,7 @@ Implementation and per-finding evidence will be recorded below as each phase pas
 | Findings | Status |
 | --- | --- |
 | H01–H04 | Fixed and Phase 1 validated (details below) |
-| M01–M14 | Confirmed/static or conditional as identified in review; pending |
+| M01–M14 | Implemented/mitigated; Phase 2 validation below; external portability tests deferred |
 | L01–L06 | Confirmed/static as identified in review; pending |
 
 No fixes are represented as complete until their regression checks and phase gate pass.
@@ -72,3 +72,37 @@ No fixes are represented as complete until their regression checks and phase gat
   long. Short, private runtime directories under Projects resolved that test
   environment failure; the complete login tests and full gate then passed. No
   WebKit security setting or production login protocol was weakened.
+
+## Phase 2 — medium-severity findings
+
+| Finding | Confirmation and implemented correction | Principal files / regression evidence |
+| --- | --- | --- |
+| M01 | Reproduced downgrade. Each HTTPS hop is checked before connection; bounded manual redirects and cross-host auth stripping. Read/connection and total-operation bounds retain TLS verification. | `network.py`, `download.py`, `thumbnails.py`; downgrade, redirect-limit/header and slow-trickle tests |
+| M02 | Reproduced late ADTS failure. Unsupported source tag containers use best-effort transfer instead of aborting valid audio merging. | `media.py`; ADTS-first real FFmpeg merge |
+| M03 | Reproduced restored cover. Separate `INHERIT_ARTWORK` sentinel from explicit `None` removal. Original artwork bytes stay intact. | `media.py`; keep/remove output checks |
+| M04 | Confirmed native markup default. All external row titles/subtitles now use literal text. | `ui.py`; ampersand/markup native test |
+| M05 | Addressed as H02 prerequisite; dedicated corruption and eight-writer tests now verify fail-closed load, backups and serialized updates. | `receipts.py`; corruption and concurrent-update tests |
+| M06 | Reproduced ENOSPC masking. Only known transport/API exceptions get connection messages; original causes retain safe type evidence. API auth persistence completes before CDN/local publication. | `audible_service.py`; local ENOSPC and auth-resave-before-transfer tests |
+| M07 | Confirmed unbounded idle queue. `ProgressDispatch` keeps one pending callback and latest state; close/operation IDs reject stale updates. | `progress.py`, `ui.py`; 10,000-event bounded-delivery test |
+| M08 | Confirmed main-thread decode/eager rows. Pillow previews are prepared in workers; original bytes are separate. Library uses recycled native ListView rows with small preview textures. Preview completion uses weak references/generation guards and owned cleanup. | `metadata.py`, `ui.py`, `thumbnails.py`; 5,000-book widget bound and off-main/stale-preview tests |
+| M09 | Reproduced malformed URL failure. Cover errors are best-effort; stream cancellation, small read units and a 15-second total deadline stop trickles and close responses. | `thumbnails.py`, `network.py`; malformed/no-network, active cancel and deadline tests |
+| M10 | Reproduced accepted relative tilde path. Preferences normalize expanded absolute paths; merge normalizes at its filesystem boundary too. | `settings.py`, `media.py`; path normalization test |
+| M11 | Reproduced null contributor/runtime errors. Invalid essential IDs are skipped with a count; nonessential fields normalize safely. Rights are true/false/unknown with distinct text; unknown is never assumed entitled. | `audible_service.py`, `ui.py`; mixed-page/schema/unknown-rights tests |
+| M12 | Confirmed discarded lock versions. Version checks, editable/pth rejection, wheel RECORD/native mtree integrity and file-hash provenance are now explicit. PATH overrides cannot substitute media binaries. | `tools/build-appimage.py`; fake version/editable tests and read-only validation of existing installed dependencies (no copies/builds) |
+| M13 | Confirmed private trust-store mismatch. Runtime-only override/additional CA support validates inputs and preserves TLS; temporary PEM cleanup restores the environment. | `AppRun.c`, `appimage_trust.py`, entry/builder; synthetic CA and malformed-certificate tests |
+| M14 | Confirmed documented baseline limitation. Static launcher diagnostics and a no-build/no-install portability evidence runner are added. No insecure fallback or support claim for untested platforms. | `AppRun.c`, `tools/check-portability.py`, `docs/portability.md`; compiled diagnostic fixture and supplied-image runner fixture |
+
+The original application architecture, automatic backend callback, US marketplace,
+whole-book ASINs, secure key transport, output naming and separate explicit
+download/conversion operations are retained. No real account activity was used.
+Cross-distribution VM tests and actual integration of launcher/CA changes in an
+AppImage are **deferred until an owner-authorized candidate build/environment**;
+no distributable AppImage was rebuilt. This is an untested compatibility boundary,
+not a remaining failed source regression.
+
+Phase 2 targeted regressions: **24 passed** (the M05 corruption/concurrency checks
+were already green from the transaction prerequisites). Final full gate:
+**162 passed**, 47.88 s; Ruff and whitespace passed. The original review and
+distributable AppImage checksums remain identical to baseline. **L06** launcher
+allocation/path/errno checks were implemented alongside M13/M14 to avoid adding
+new unchecked startup paths; its fault-injection tests follow in Phase 3.

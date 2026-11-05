@@ -17,6 +17,7 @@ Progress = Callable[[float, str], None]
 
 
 PROTECTED_OPTIONS = {"-activation_bytes": 8, "-audible_key": 32, "-audible_iv": 32}
+INHERIT_ARTWORK = object()
 
 
 def protected_format(path: Path) -> str | None:
@@ -323,7 +324,7 @@ def _escape(value: str) -> str:
 def merge(sources: list[Path], target: Path, cancel: threading.Event,
           progress: Progress = lambda *_: None, titles: list[str] | None = None,
           bitrate: int = 96, chapters: bool = True, tags: dict | None = None,
-          artwork: bytes | None = None, temporary_dir: Path | None = None):
+          artwork=INHERIT_ARTWORK, temporary_dir: Path | None = None):
     if not sources:
         raise UtilityError("Import at least one track.")
     if target.suffix.lower() not in {".m4b", ".mp3"}:
@@ -337,6 +338,7 @@ def merge(sources: list[Path], target: Path, cancel: threading.Event,
     if titles is not None and len(titles) != len(infos):
         raise UtilityError("Each track needs a chapter title.")
     if temporary_dir:
+        temporary_dir = temporary_dir.expanduser().resolve()
         temporary_dir.mkdir(parents=True, exist_ok=True)
     required = int(((total + max(i.duration for i in infos)) * 48000 * 2 * 2
                     + total * bitrate * 1000 / 8) * 1.1)
@@ -383,10 +385,15 @@ def merge(sources: list[Path], target: Path, cancel: threading.Event,
                         str(temporary)], elapsed, cancel,
                        lambda p, s: progress((len(infos) + p) / (len(infos) + 1), s))
             from .metadata import read_tags, write_tags
-            original_tags, original_art = read_tags(sources[0]) if infos[0].codec in {"aac", "mp3"} else ({}, None)
+            try:
+                original_tags, original_art = read_tags(sources[0])
+            except UtilityError:
+                original_tags, original_art = {}, None
             write_tags(temporary, tags if tags is not None else original_tags,
-                       artwork if artwork is not None else original_art)
+                       original_art if artwork is INHERIT_ARTWORK else artwork)
             verify(temporary, elapsed, timeline if is_m4b and chapters else None)
+            run_ffmpeg(["-i", str(temporary), "-map", "0:a:0", "-f", "null", "-"], elapsed, cancel,
+                       operation="ffmpeg.verify_audio")
             if cancel.is_set():
                 raise Cancelled("Merge canceled.")
     progress(1, "Merge complete")

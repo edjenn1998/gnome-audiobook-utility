@@ -22,6 +22,7 @@ docs/authentication-ui.md
 docs/cachyos-validation.md
 docs/development.md
 docs/progress.md
+docs/portability.md
 docs/screenshots/merge.png
 meson.build
 meson.options
@@ -41,6 +42,8 @@ src/audiobook_utility/login_window.py
 src/audiobook_utility/media.py
 src/audiobook_utility/media_diagnostics.py
 src/audiobook_utility/metadata.py
+src/audiobook_utility/network.py
+src/audiobook_utility/progress.py
 src/audiobook_utility/protected_diagnostics.py
 src/audiobook_utility/receipts.py
 src/audiobook_utility/settings.py
@@ -58,11 +61,14 @@ tests/test_metadata.py
 tests/test_protected_media.py
 tests/test_reliability.py
 tests/test_remediation_high.py
+tests/test_remediation_medium.py
 tests/test_ui_workflows.py
 tools/appimage/AppRun.c
+tools/appimage/appimage_trust.py
 tools/appimage/entry.py
 tools/appimage/self_test.py
 tools/build-appimage.py
+tools/check-portability.py
 tools/capture.py
 tools/check-local
 tools/local-deps.py
