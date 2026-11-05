@@ -2,7 +2,7 @@ project('gnome-audiobook-utility', version: '0.1.0', meson_version: '>=1.2', lic
 
 python = import('python').find_installation(get_option('python'))
 run_command(python, '-c',
-  'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Gtk, Adw; assert (Gtk.get_major_version(), Gtk.get_minor_version()) >= (4,10); assert (Adw.get_major_version(), Adw.get_minor_version()) >= (1,5)',
+  'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Gtk, Adw; import sys; sys.exit(0 if (Gtk.get_major_version(), Gtk.get_minor_version()) >= (4,10) and (Adw.get_major_version(), Adw.get_minor_version()) >= (1,5) else "GTK >= 4.10 and Libadwaita >= 1.5 required")',
   check: true)
 app_id = 'io.github.edjenn1998.AudiobookUtility'
 package_dir = get_option('prefix') / get_option('datadir') / 'audiobook-utility'

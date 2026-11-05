@@ -31,7 +31,7 @@ Implementation and per-finding evidence will be recorded below as each phase pas
 | --- | --- |
 | H01–H04 | Fixed and Phase 1 validated (details below) |
 | M01–M14 | Implemented/mitigated; Phase 2 validation below; external portability tests deferred |
-| L01–L06 | Confirmed/static as identified in review; pending |
+| L01–L06 | Fixed and Phase 3 validated (details below) |
 
 No fixes are represented as complete until their regression checks and phase gate pass.
 
@@ -106,3 +106,27 @@ were already green from the transaction prerequisites). Final full gate:
 distributable AppImage checksums remain identical to baseline. **L06** launcher
 allocation/path/errno checks were implemented alongside M13/M14 to avoid adding
 new unchecked startup paths; its fault-injection tests follow in Phase 3.
+
+## Phase 3 — low-severity findings
+
+- **L01:** Dedicated fault injection verifies file-before-directory fsync ordering
+  and reports a directory-sync failure without deleting the already committed file.
+- **L02:** Corrupt/oversized cache entries are removed and refetched; owned regular
+  hash-named entries expire after 30 days and are evicted oldest-access-first above
+  64 MiB/1,000 entries. Foreign files and symlink targets are preserved.
+- **L03:** Metadata forms compare text and original artwork against the last loaded
+  or saved state. Opening/restoring another file or closing prompts Save/Discard/
+  Cancel. Failed saves retain dirty state and do not continue the pending action.
+- **L04:** Migration path/member/hash/mode/Git checks, AppImage self-tests and Meson
+  version checks use explicit failures, including under optimized Python. The
+  migration root allowlist includes the reviewed packaging/remediation files.
+- **L05:** Screenshot tooling is import-safe, uses project-local synthetic media,
+  and renders only the allocated application widget through GTK. Missing render
+  nodes fail explicitly. No whole-desktop capture fallback exists.
+- **L06:** A compiled synthetic launcher with failed `strdup` verifies a useful
+  allocation diagnostic; bounds/errno checks were implemented during Phase 2.
+
+The initial low-severity run reproduced six failures (four prerequisites were
+already green). Expanded targeted checks: **12 passed**, including a real native
+application-only PNG render. Full Phase 3 suite: **174 passed**, 48.66 s;
+Ruff passed. Synthetic archives/binaries only; no release rebuild or account use.

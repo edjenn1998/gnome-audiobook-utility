@@ -11,19 +11,24 @@ import time
 from urllib.parse import urlencode
 
 
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
 def main(arguments=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--network", action="store_true", help="Also load Amazon's public login page without logging in")
     args = parser.parse_args(arguments)
-    assert os.environ.get("AUDIOBOOK_APPIMAGE") == "1"
+    require(os.environ.get("AUDIOBOOK_APPIMAGE") == "1", "Self-test requires the AppImage runtime")
     manifest = Path("/usr/share/audiobook-utility/appimage-build.json")
-    assert manifest.is_file()
+    require(manifest.is_file(), "Build manifest missing")
     import audiobook_utility
     import audible
     import gi
-    assert sys.prefix == "/usr"
+    require(sys.prefix == "/usr", "Unexpected Python prefix")
     for module in (audiobook_utility, audible, gi):
-        assert Path(module.__file__).is_relative_to("/usr/lib"), "A host Python package leaked into the runtime"
+        require(Path(module.__file__).is_relative_to("/usr/lib"), "A host Python package leaked into the runtime")
     from audiobook_utility.media import convert, merge, probe
     from audiobook_utility.metadata import edit, read_tags
 
@@ -35,11 +40,11 @@ def main(arguments=None):
         target = work / "synthetic.m4b"
         convert(source, target, threading.Event())
         edit(target, {"title": "AppImage synthetic test", "description": "Paragraph one.\n\nParagraph two."}, None)
-        assert read_tags(target)[0]["title"] == "AppImage synthetic test"
-        assert probe(target).codec == "aac"
+        require(read_tags(target)[0]["title"] == "AppImage synthetic test", "Metadata round-trip failed")
+        require(probe(target).codec == "aac", "Conversion codec mismatch")
         merged = work / "merged.m4b"
         merge([source, source], merged, threading.Event(), titles=["One", "Two"])
-        assert len(probe(merged).chapters) == 2
+        require(len(probe(merged).chapters) == 2, "Merged chapter count mismatch")
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(merged), "-f", "null", "-"], check=True)
         print("Bundled FFmpeg conversion, merge, chapters, metadata and decoding: passed", flush=True)
 
@@ -63,7 +68,7 @@ def main(arguments=None):
         if time.monotonic() > deadline:
             raise RuntimeError("Bundled artwork preview timed out")
         time.sleep(0.01)
-    assert parent.tag_form.picture.get_paintable() is not None
+    require(parent.tag_form.picture.get_paintable() is not None, "Artwork preview missing")
     WebKit, _ = webkit_modules()
     target = "https://www.amazon.com/ap/maplanding"
     callback = target + "?openid.oa2.authorization_code=appimage-synthetic-test"
@@ -83,7 +88,7 @@ def main(arguments=None):
             if time.monotonic() > deadline:
                 raise RuntimeError("Bundled WebKit callback timed out")
             time.sleep(0.01)
-        assert request.wait() == callback
+        require(request.wait() == callback, "Automatic callback mismatch")
         print("Bundled GTK/Adwaita, ephemeral WebKit and automatic callback: passed", flush=True)
     finally:
         login.finish()
@@ -93,7 +98,7 @@ def main(arguments=None):
         from audible.localization import Locale
         from audible.login import build_oauth_url, create_code_verifier
         import httpx
-        assert httpx.get("https://www.amazon.com/", follow_redirects=True, timeout=30).status_code < 500
+        require(httpx.get("https://www.amazon.com/", follow_redirects=True, timeout=30).status_code < 500, "Public HTTPS request failed")
         locale = Locale("us")
         uri, _ = build_oauth_url(locale.country_code, locale.domain, locale.market_place_id, create_code_verifier())
         request = LoginRequest(uri, threading.Event())
@@ -131,7 +136,7 @@ def main(arguments=None):
                 if time.monotonic() > deadline:
                     raise RuntimeError("Bundled public Amazon login page could not load")
                 time.sleep(0.01)
-            assert result == [True]
+            require(result == [True], "Public sign-in page did not render")
             print("Bundled HTTPS/DNS/certificates and real Amazon sign-in page: passed (no account login)", flush=True)
         finally:
             login.finish()

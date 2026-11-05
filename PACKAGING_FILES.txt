@@ -62,6 +62,7 @@ tests/test_protected_media.py
 tests/test_reliability.py
 tests/test_remediation_high.py
 tests/test_remediation_medium.py
+tests/test_remediation_low.py
 tests/test_ui_workflows.py
 tools/appimage/AppRun.c
 tools/appimage/appimage_trust.py

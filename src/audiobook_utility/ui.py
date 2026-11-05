@@ -90,6 +90,15 @@ class TagForm(Gtk.Box):
         actions.append(button("Choose Cover…", self.choose_cover))
         actions.append(button("Remove Cover", lambda: self.set_art(None)))
         self.append(actions)
+        self.mark_clean()
+
+    def mark_clean(self):
+        self._saved_values = self.values()
+        self._saved_artwork = self.artwork
+
+    @property
+    def dirty(self):
+        return self.values() != self._saved_values or self.artwork != self._saved_artwork
 
     def choose_cover(self):
         self.window.choose(lambda paths: self.import_cover(paths[0]), images=True)
@@ -120,6 +129,7 @@ class TagForm(Gtk.Box):
         for field, entry in self.entries.items():
             entry.set_text(values.get(field, ""))
         self.set_art(art, preview)
+        self.mark_clean()
 
     def values(self):
         return {field: entry.get_text() for field, entry in self.entries.items()}
@@ -136,6 +146,7 @@ class Window(Adw.ApplicationWindow):
         self.tracks = []
         self.convert_paths = []
         self.metadata_path = None
+        self.metadata_guard = None
         self.books = []
         self.book_checks = {}
         self.login_window = None
@@ -264,7 +275,33 @@ class Window(Adw.ApplicationWindow):
             self.cancel.set()
             self.status.set_text("Canceling operation. Close the window again after it finishes.")
             return True
+        if self.metadata_path and self.tag_form.dirty:
+            self.guard_metadata(self.close)
+            return True
         return False
+
+    def guard_metadata(self, continuation):
+        if self.metadata_guard:
+            return
+        dialog = Adw.AlertDialog(heading="Save metadata changes?",
+                                 body="Your audiobook has unsaved metadata or cover changes.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard Changes")
+        dialog.add_response("save", "Save Changes")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        def response(_, choice):
+            self.metadata_guard = None
+            if choice == "discard":
+                self.tag_form.mark_clean()
+                continuation()
+            elif choice == "save":
+                self.save_metadata(continuation)
+        dialog.connect("response", response)
+        self.metadata_guard = dialog
+        dialog.present(self)
 
     def add_page(self, widget, name, title, icon, scrollable=True):
         if not scrollable:
@@ -584,6 +621,11 @@ class Window(Adw.ApplicationWindow):
         return box
 
     def open_metadata(self, path):
+        if self.busy:
+            return
+        if self.metadata_path and self.tag_form.dirty:
+            self.guard_metadata(lambda: self.open_metadata(path))
+            return
         def read(*_):
             values, art = read_tags(path)
             return values, art, prepare_preview(art) if art else None
@@ -593,12 +635,17 @@ class Window(Adw.ApplicationWindow):
             self.tag_form.fill(*result)
         self.work("Reading metadata", read, done)
 
-    def save_metadata(self):
+    def save_metadata(self, continuation=None):
         if not self.metadata_path:
             self.error("Open an audiobook before saving tags.")
             return
         path, tags, art = self.metadata_path, self.tag_form.values(), self.tag_form.artwork
-        self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), self.completed)
+        def saved(result):
+            self.tag_form.mark_clean()
+            self.completed(result)
+            if continuation:
+                continuation()
+        self.work("Saving metadata", lambda cancel, _: edit(path, tags, art, cancel), saved)
 
     def audible_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
